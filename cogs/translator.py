@@ -1,8 +1,8 @@
 import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
-import asyncio
 
+# Canales de idiomas
 LANG_CHANNELS = {
     "spanish": "es",
     "english": "en",
@@ -14,15 +14,14 @@ class Translator(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.webhook_cache = {}
-        self.message_map = {}  # sync ids
+        self.message_map = {}  # Map de mensajes originales -> traducidos
 
     async def get_webhook(self, channel):
-
+        """Obtiene o crea un webhook por canal."""
         if channel.id in self.webhook_cache:
             return self.webhook_cache[channel.id]
 
         webhooks = await channel.webhooks()
-
         for wh in webhooks:
             if wh.name == "translator_webhook":
                 self.webhook_cache[channel.id] = wh
@@ -32,12 +31,12 @@ class Translator(commands.Cog):
         self.webhook_cache[channel.id] = webhook
         return webhook
 
-    async def translate(self, text, source, target):
+    def translate(self, text, source, target):
+        """Función de traducción sincrónica."""
         return GoogleTranslator(source=source, target=target).translate(text)
 
     @commands.Cog.listener()
     async def on_message(self, message):
-
         if message.author.bot or message.webhook_id:
             return
 
@@ -45,11 +44,9 @@ class Translator(commands.Cog):
             return
 
         source_lang = LANG_CHANNELS[message.channel.name.lower()]
-
         translated_ids = []
 
         for ch_name, target_lang in LANG_CHANNELS.items():
-
             if target_lang == source_lang:
                 continue
 
@@ -57,17 +54,16 @@ class Translator(commands.Cog):
                 message.guild.text_channels,
                 name=ch_name
             )
-
             if not target_channel:
                 continue
 
+            # Ejecuta la traducción sin bloquear el loop de discord
             translated_text = await self.bot.loop.run_in_executor(
                 None,
                 lambda: self.translate(message.content, source_lang, target_lang)
             )
 
             webhook = await self.get_webhook(target_channel)
-
             reply_to = None
 
             if message.reference and message.reference.message_id:
@@ -91,7 +87,6 @@ class Translator(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):
-
         if after.id not in self.message_map:
             return
 
@@ -100,14 +95,11 @@ class Translator(commands.Cog):
             return
 
         for translated_msg in self.message_map[after.id]:
-
             target_lang = LANG_CHANNELS[translated_msg.channel.name.lower()]
-
             new_text = await self.bot.loop.run_in_executor(
                 None,
                 lambda: self.translate(after.content, source_lang, target_lang)
             )
-
             await translated_msg.edit(content=new_text)
 
 
