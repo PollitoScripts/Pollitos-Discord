@@ -53,7 +53,14 @@ class Translator(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        # 1. Filtros básicos: ignorar bots, webhooks y mensajes vacíos
         if message.author.bot or message.webhook_id or not message.content:
+            return
+
+        # 2. FILTRO DE COMANDOS: Si el mensaje empieza por prefijo, lo ignoramos
+        # Esto evita que los comandos aparezcan traducidos o desaparezcan
+        prefijos_comunes = ("!", ".", "/", "$", ">") 
+        if message.content.startswith(prefijos_comunes):
             return
 
         canal_orig = message.channel.name.lower()
@@ -101,7 +108,9 @@ class Translator(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
-        if after.id not in self.message_map or before.content == after.content:
+        # No editar si es un comando o si el ID no está en nuestro mapa
+        prefijos_comunes = ("!", ".", "/", "$", ">")
+        if after.id not in self.message_map or before.content == after.content or after.content.startswith(prefijos_comunes):
             return
 
         logger.info(f"Editando traducciones para mensaje {after.id}")
