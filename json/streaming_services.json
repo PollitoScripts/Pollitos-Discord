@@ -1,0 +1,201 @@
+{
+    "streaming_services": [
+        {  
+            "name": "Netflix",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1254570179208282163/106e4fe9db39e2c6ff4a99d27a517df7.png?ex=6679f907&is=6678a787&hm=27376959306052b77c3c165c198e2dbfb58350401ea8da8606802aad88d8f394&",
+            "description": "Streaming service offering a wide variety of award-winning TV shows, movies, anime, documentaries, and more, you share a subscription whit other 3 people, you can put your own pin to your profile provieded",
+            "plans": [
+                 {
+                    "name": "1 Month (OWN ACC, NOT SHARED)",
+                    "price_per_month":  9.50,
+                    "resolution": "Plan Estándar (Full HD/1080p + HDR + SIN ANUNCIOS)"
+                  
+                },
+                {
+                    "name": "1 Months (SHARED)",
+                    "price_per_month":  7.50,
+                    "resolution": "4K + SIN ANUNCIOS"
+                  
+                }
+            ]
+        },
+        {
+            "name": "Disney+",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1254570341120999496/cf679d34bc5f8716cee41454cb317b97.png?ex=6679f92e&is=6678a7ae&hm=ceab3534c5cb08fa313d9303f3251d918a494bdc73330a2f3f271de9b6d49825&",
+            "description": "Streaming service offering Disney, Pixar, Marvel, Star Wars, and National Geographic content.",
+            "plans": [
+                {
+                    "name": "3 Months",
+                    "price_per_month": 20,
+                    "resolution": "4K"
+                },
+                {
+                    "name": "1 Year",
+                    "price_per_month": 50,
+                    "resolution": "4K"
+                }
+            ]
+        },
+        {
+            "name": "YoTube Premium",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1254572706318385252/descarga.png?ex=6679fb62&is=6678a9e2&hm=1ea2882ecbe65fd13f0358672c6c7700da4356f96d4908d6c7c2812ebdfec42a&",
+            "description": "Streaming service offering a wide variety of TV shows, movies, and original content.",
+            "plans": [
+                {                              
+                    "name": "3 Months",
+                    "price_per_month": 11.50,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                },
+                {                              
+                    "name": "6 Months (OWN ACC NOT LOGIN INFO NEEDED)",
+                    "price_per_month": 40,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                },
+                {                              
+                    "name": "1 Year",
+                    "price_per_month": 65,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                }
+            ]
+        },
+        {
+            "name": "Crunchyroll",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1254570493210791966/zvB1ldifj11Pn0AAAAAElFTkSuQmCC.png?ex=6679f952&is=6678a7d2&hm=d0b70b005571e5721ea42010ffa9e8ff37a19cc3cfcf5008ab1635733abd6260&",
+            "description": "Streaming service offering popular movies, and animes.",
+            "plans": [
+                {
+                    "name": "3 Months",
+                    "price_per_month": 13,
+                    "resolution": "1080p HD"
+                },
+                {
+                    "name": "6 Months",
+                    "price_per_month": 25.99,
+                    "resolution": "1080p HD"
+                },
+                {
+                    "name": "1 Year",
+                    "price_per_month": 45,
+                    "resolution": "1080p HD"
+                }
+            ]
+        },
+        {
+            "name": "HBO Max",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1254570308208296076/99ce55f2fae80215a5f87e6adf3b9642.png?ex=6679f926&is=6678a7a6&hm=5d003018f591dd9cf446861f05888d80c4109f26dba3d817d06a155dc89dd859&",
+            "description": "Streaming service offering HBO content, including original series, movies, and more.",
+            "plans": [
+                {
+                    "name": "3 Months",
+                    "price_per_month": 20,
+                    "resolution": "4K",
+                    "ads": "No Ads"
+                },
+                {
+                    "name": "6 Months",
+                    "price_per_month": 33,
+                    "resolution": "4K",
+                    "ads": "No Ads"
+                }
+            ]
+        },
+        {
+            "name": "GPT-5.2",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1254570389632188476/7979e06bce1d04cea94bcec15ea89eb5.png?ex=6679f939&is=6678a7b9&hm=617cf91ed760c2272a7854756314bdeca5e9302e60a07e960460659fd48c30e1&",
+            "description": "An ideal tool for a wide range of applications, from conversational AI to content creation.",
+            "plans": [
+                {
+                    "name": "3 Months (OWN ACC NOT SHARED)",
+                    "price_per_month": 60,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                },
+                {
+                    "name": "6 Months (SHARED WHIT 3 PPL)",
+                    "price_per_month": 70,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                }
+            ]
+        },
+        {
+            "name": "Spotify Premium",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1254576372106530836/spotify-premium-subida-precios-portada.png?ex=6679fecc&is=6678ad4c&hm=79a4712e9a8d2723ec4eeeb15469a3a9fd99fc91342d0be3fc57796741abbd9e&",
+            "description": "An ideal app for a listening music and create your own playlist",
+            "plans": [
+                {
+                    "name": "3 Months (EU) Personal or New Account you chosse (need login details for personal acc)",
+                    "price_per_month": 16,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                },
+                {
+                    "name": "1 Year",
+                    "price_per_month": 50,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                }
+            ]
+        },
+        {
+            "name": "Discord Nitro",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1258149339264454687/UpdatedNitroLogo_1MB_2560x1440-c77a4693df3d7434672f6424b4550bf0.png?ex=6686fe61&is=6685ace1&hm=72e4b6e3e48e08caf0d0d515be74c54983f473108d33e81af82b05260b298554&",
+            "description": "Unlocks access to all the benefits it offers, such as custom emojis and stickers anywhere, HD video streaming, and two server improvements",
+            "plans": [
+                {
+                    "name": "1 Month",
+                    "price_per_month": 5,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                },
+                {
+                    "name": "3 Months (Only for new accounts)",
+                    "price_per_month": 10,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                },
+                {
+                    "name": "1 Year",
+                    "price_per_month": 50,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                }
+            ]
+        },
+        {
+            "name": "Tinder Gold",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1254579910060539954/314429853.png?ex=667a0217&is=6678b097&hm=335882bcfecaee2a7a475ab20cf9b462201c9a88e090f846ed712188b6d642bb&",
+            "description": "An ideal application to meet people and have a bit sex xD",
+            "plans": [
+                {
+                    "name": "1 Month",
+                    "price_per_month": 15,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                },
+                {
+                    "name": "3 Months",
+                    "price_per_month": 29.99,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                }
+            ]
+        },
+        {
+            "name": "Tik Tok, //Views// //Followers// //Likes// //Comments//",
+            "image": "https://cdn.discordapp.com/attachments/1254570065517350972/1258156599558799440/N5YZD7PS55IQLN6B6T72J6WERU.png?ex=66870524&is=6685b3a4&hm=f3d44934128affb57fd61347d4ef2aa3a6cfc90d16416aaac132072eaaacddda&",
+            "description": "An ideal application to create your own community for others socials",
+            "plans": [
+                {
+                    "name": "Open ticket and ask in",
+                    "price_per_month": 0,
+                    "resolution": "N/A",
+                    "ads": "No Ads"
+                }
+            ]
+        }
+    ]
+}
