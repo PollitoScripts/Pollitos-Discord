@@ -2,8 +2,12 @@ import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
 import asyncio
+import logging
 
-# Canales y sus idiomas
+# Configuración de logs para que aparezcan en la consola de Render
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('TranslatorCog')
+
 LANG_CHANNELS = {
     "spanish": "es",
     "english": "en",
@@ -13,39 +17,53 @@ LANG_CHANNELS = {
 class Translator(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.webhook_cache = {}  # cache de webhooks por canal
-        self.message_map = {}    # map de mensajes originales a traducidos
+        self.webhook_cache = {}
+        self.message_map = {}
 
-    # Obtener o crear webhook para un canal
     async def get_webhook(self, channel: discord.TextChannel):
         if channel.id in self.webhook_cache:
             return self.webhook_cache[channel.id]
 
-        webhooks = await channel.webhooks()
-        for wh in webhooks:
-            if wh.name == "translator_webhook":
-                self.webhook_cache[channel.id] = wh
-                return wh
+        try:
+            webhooks = await channel.webhooks()
+            for wh in webhooks:
+                if wh.name == "translator_webhook":
+                    self.webhook_cache[channel.id] = wh
+                    return wh
 
-        webhook = await channel.create_webhook(name="translator_webhook")
-        self.webhook_cache[channel.id] = webhook
-        return webhook
+            logger.info(f"Creando nuevo webhook en canal: {channel.name}")
+            webhook = await channel.create_webhook(name="translator_webhook")
+            self.webhook_cache[channel.id] = webhook
+            return webhook
+        except discord.Forbidden:
+            logger.error(f"¡ERROR! No tengo permisos para gestionar webhooks en {channel.name}")
+            return None
+        except Exception as e:
+            logger.error(f"Error inesperado en get_webhook: {e}")
+            return None
 
-    # Función de traducción bloqueante, se ejecutará en un hilo aparte
-    def translate(self, text: str, source: str, target: str) -> str:
-        return GoogleTranslator(source=source, target=target).translate(text)
+    def translate_text(self, text: str, target: str) -> str:
+        try:
+            # Usamos auto para evitar conflictos de detección en Render
+            result = GoogleTranslator(source='auto', target=target).translate(text)
+            return result
+        except Exception as e:
+            logger.error(f"Fallo de GoogleTranslator: {e}")
+            return None
 
-    # Listener de mensajes nuevos
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if message.author.bot or message.webhook_id:
+        if message.author.bot or message.webhook_id or not message.content:
             return
 
-        if message.channel.name.lower() not in LANG_CHANNELS:
+        canal_orig = message.channel.name.lower()
+        if canal_orig not in LANG_CHANNELS:
             return
 
-        source_lang = LANG_CHANNELS[message.channel.name.lower()]
-        translated_ids = []
+        logger.info(f"Detectado mensaje en #{canal_orig}: {message.content[:20]}...")
+        
+        source_lang = LANG_CHANNELS[canal_orig]
+        translated_msgs = []
 
         for ch_name, target_lang in LANG_CHANNELS.items():
             if target_lang == source_lang:
@@ -53,56 +71,50 @@ class Translator(commands.Cog):
 
             target_channel = discord.utils.get(message.guild.text_channels, name=ch_name)
             if not target_channel:
+                logger.warning(f"No se encontró el canal de destino: {ch_name}")
                 continue
 
-            # Traduce en un hilo aparte para no bloquear el bot
-            translated_text = await asyncio.to_thread(
-                self.translate, message.content, source_lang, target_lang
-            )
+            # Traducir
+            translated_text = await asyncio.to_thread(self.translate_text, message.content, target_lang)
+            
+            if not translated_text:
+                continue
 
             webhook = await self.get_webhook(target_channel)
+            if not webhook:
+                continue
 
-            # Referencia si el mensaje es una respuesta
-            reply_to = None
-            if message.reference and message.reference.message_id:
-                original_id = message.reference.message_id
-                if original_id in self.message_map:
-                    for m in self.message_map[original_id]:
-                        if m.channel.id == target_channel.id:
-                            reply_to = await target_channel.fetch_message(m.id)
+            try:
+                sent = await webhook.send(
+                    content=translated_text,
+                    username=f"{message.author.display_name} ({target_lang.upper()})",
+                    avatar_url=message.author.display_avatar.url,
+                    wait=True
+                )
+                translated_msgs.append(sent)
+                logger.info(f"Traducción enviada a #{ch_name}")
+            except Exception as e:
+                logger.error(f"Error al enviar mensaje vía Webhook: {e}")
 
-            sent = await webhook.send(
-                translated_text,
-                username=message.author.display_name,
-                avatar_url=message.author.display_avatar.url,
-                wait=True,
-                reference=reply_to
-            )
+        if translated_msgs:
+            self.message_map[message.id] = translated_msgs
 
-            translated_ids.append(sent)
-
-        self.message_map[message.id] = translated_ids
-
-    # Listener de edición de mensajes
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
-        if after.id not in self.message_map:
+        if after.id not in self.message_map or before.content == after.content:
             return
 
-        source_lang = LANG_CHANNELS.get(after.channel.name.lower())
-        if not source_lang:
-            return
+        logger.info(f"Editando traducciones para mensaje {after.id}")
+        for msg in self.message_map[after.id]:
+            target_lang = LANG_CHANNELS.get(msg.channel.name.lower())
+            if not target_lang: continue
 
-        for translated_msg in self.message_map[after.id]:
-            target_lang = LANG_CHANNELS[translated_msg.channel.name.lower()]
+            new_text = await asyncio.to_thread(self.translate_text, after.content, target_lang)
+            if new_text:
+                try:
+                    await msg.edit(content=new_text)
+                except Exception as e:
+                    logger.error(f"No se pudo editar la traducción: {e}")
 
-            # Traduce en un hilo aparte para no bloquear
-            new_text = await asyncio.to_thread(
-                self.translate, after.content, source_lang, target_lang
-            )
-
-            await translated_msg.edit(content=new_text)
-
-# Función de setup para cargar el cog
 async def setup(bot):
     await bot.add_cog(Translator(bot))
