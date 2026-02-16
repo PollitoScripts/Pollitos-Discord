@@ -8,6 +8,8 @@ import asyncio
 import time
 import requests  # <-- necesario para el autoping
 from threading import Thread
+import aiohttp
+import asyncio
 
 # Importa tu webserver desde cogs
 from cogs import webserver  # Ahora apunta a cogs/webserver.py
@@ -27,7 +29,7 @@ async def load_extensions():
     print("Extensiones cargadas.")
 
 async def services():
-    channel = bot.get_channel(config.channel_id)
+    channel = await bot.fetch_channel(channel_id)
     
     if channel is None:
         retries = 0
@@ -100,33 +102,32 @@ Thread(target=webserver.run).start()
 # ----------------------------
 # Autoping para mantener activo el Web Service
 # ----------------------------
-def self_ping():
-    url = "https://pollitos-discord.onrender.com/"  # <--- Cambia esto por tu URL real
+async def self_ping():
+    url = "https://pollitos-discord.onrender.com/"  # tu URL real
     while True:
         try:
-            print("🔔 Ping al Web Service para mantenerlo activo...")
-            requests.get(url)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    print("🔔 Ping al Web Service para mantenerlo activo...")
         except Exception as e:
             print(f"⚠️ Error en ping: {e}")
-        time.sleep(10 * 60)  # cada 10 minutos
-
-Thread(target=self_ping).start()
-
+        await asyncio.sleep(10*60)  # cada 10 minutos`
 # ----------------------------
 # Watchdog para reinicio automático
 # ----------------------------
-def start_bot():
+async def start_bot_loop():
     while True:
         try:
-            print("⚡ Iniciando bot...")
-            bot.run(TOKEN)
+            await bot.start(TOKEN)
         except Exception as e:
-            print(f"❌ Bot crasheó: {e}")
-            print("⏳ Reiniciando en 5 segundos...")
-            time.sleep(5)
+            print(f"Bot crasheó: {e}")
+            await asyncio.sleep(5)
 
 # ----------------------------
 # Ejecutar
 # ----------------------------
 if __name__ == "__main__":
-    start_bot()
+    loop = asyncio.get_event_loop()
+    loop.create_task(self_ping())       # arranca el autoping en paralelo
+    loop.run_until_complete(start_bot_loop())
+
