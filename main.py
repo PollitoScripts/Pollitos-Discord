@@ -116,7 +116,7 @@ Thread(target=run_web).start()
 # Autoping para mantener activo el Web Service
 # ----------------------------
 def self_ping():
-    url = "https://TU-NOMBRE-DE-SERVICIO.onrender.com/"  # <--- Cambia esto por tu URL real
+    url = "https://pollitos-discord.onrender.com/"  # <--- Cambia esto por tu URL real
     while True:
         try:
             print("🔔 Ping al Web Service para mantenerlo activo...")
