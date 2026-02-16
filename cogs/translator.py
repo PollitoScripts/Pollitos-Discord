@@ -4,7 +4,6 @@ from deep_translator import GoogleTranslator
 import asyncio
 import logging
 
-# Configuración de logs para que aparezcan en la consola de Render
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('TranslatorCog')
 
@@ -18,112 +17,100 @@ class Translator(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.webhook_cache = {}
-        self.message_map = {}
+        self.message_map = {} # {id_original: [lista_de_mensajes_enviados_por_webhook]}
 
     async def get_webhook(self, channel: discord.TextChannel):
         if channel.id in self.webhook_cache:
             return self.webhook_cache[channel.id]
-
         try:
             webhooks = await channel.webhooks()
             for wh in webhooks:
                 if wh.name == "translator_webhook":
                     self.webhook_cache[channel.id] = wh
                     return wh
-
-            logger.info(f"Creando nuevo webhook en canal: {channel.name}")
             webhook = await channel.create_webhook(name="translator_webhook")
             self.webhook_cache[channel.id] = webhook
             return webhook
-        except discord.Forbidden:
-            logger.error(f"¡ERROR! No tengo permisos para gestionar webhooks en {channel.name}")
-            return None
         except Exception as e:
-            logger.error(f"Error inesperado en get_webhook: {e}")
+            logger.error(f"Error webhooks: {e}")
             return None
 
     def translate_text(self, text: str, target: str) -> str:
         try:
-            # Usamos auto para evitar conflictos de detección en Render
-            result = GoogleTranslator(source='auto', target=target).translate(text)
-            return result
+            return GoogleTranslator(source='auto', target=target).translate(text)
         except Exception as e:
-            logger.error(f"Fallo de GoogleTranslator: {e}")
+            logger.error(f"Error traducción: {e}")
             return None
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # 1. Filtros básicos: ignorar bots, webhooks y mensajes vacíos
         if message.author.bot or message.webhook_id or not message.content:
             return
 
-        # 2. FILTRO DE COMANDOS: Si el mensaje empieza por prefijo, lo ignoramos
-        # Esto evita que los comandos aparezcan traducidos o desaparezcan
-        prefijos_comunes = ("!", ".", "/", "$", ">") 
-        if message.content.startswith(prefijos_comunes):
+        prefijos = ("!", ".", "/", "$", ">") 
+        if message.content.startswith(prefijos):
             return
 
         canal_orig = message.channel.name.lower()
         if canal_orig not in LANG_CHANNELS:
             return
 
-        logger.info(f"Detectado mensaje en #{canal_orig}: {message.content[:20]}...")
-        
         source_lang = LANG_CHANNELS[canal_orig]
         translated_msgs = []
 
         for ch_name, target_lang in LANG_CHANNELS.items():
-            if target_lang == source_lang:
-                continue
-
+            if target_lang == source_lang: continue
             target_channel = discord.utils.get(message.guild.text_channels, name=ch_name)
-            if not target_channel:
-                logger.warning(f"No se encontró el canal de destino: {ch_name}")
-                continue
+            if not target_channel: continue
 
-            # Traducir
-            translated_text = await asyncio.to_thread(self.translate_text, message.content, target_lang)
-            
-            if not translated_text:
-                continue
+            text = await asyncio.to_thread(self.translate_text, message.content, target_lang)
+            if not text: continue
 
             webhook = await self.get_webhook(target_channel)
-            if not webhook:
-                continue
+            if not webhook: continue
 
-            try:
-                sent = await webhook.send(
-                    content=translated_text,
-                    username=f"{message.author.display_name} ({target_lang.upper()})",
-                    avatar_url=message.author.display_avatar.url,
-                    wait=True
-                )
-                translated_msgs.append(sent)
-                logger.info(f"Traducción enviada a #{ch_name}")
-            except Exception as e:
-                logger.error(f"Error al enviar mensaje vía Webhook: {e}")
+            sent = await webhook.send(
+                content=text,
+                username=f"{message.author.display_name} ({target_lang.upper()})",
+                avatar_url=message.author.display_avatar.url,
+                wait=True
+            )
+            translated_msgs.append(sent)
 
         if translated_msgs:
             self.message_map[message.id] = translated_msgs
 
+    # --- NUEVA LÓGICA PARA REACCIONES ---
     @commands.Cog.listener()
-    async def on_message_edit(self, before: discord.Message, after: discord.Message):
-        # No editar si es un comando o si el ID no está en nuestro mapa
-        prefijos_comunes = ("!", ".", "/", "$", ">")
-        if after.id not in self.message_map or before.content == after.content or after.content.startswith(prefijos_comunes):
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        # Evitar que el bot reaccione a sí mismo
+        if payload.user_id == self.bot.user.id:
             return
 
-        logger.info(f"Editando traducciones para mensaje {after.id}")
+        # Verificar si el mensaje reaccionado es uno de los mensajes originales
+        if payload.message_id in self.message_map:
+            for translated_msg in self.message_map[payload.message_id]:
+                try:
+                    # Obtenemos el canal y el mensaje traducido para añadir la reacción
+                    channel = self.bot.get_channel(translated_msg.channel.id)
+                    msg = await channel.fetch_message(translated_msg.id)
+                    await msg.add_reaction(payload.emoji)
+                except Exception as e:
+                    logger.error(f"No se pudo replicar la reacción: {e}")
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before: discord.Message, after: discord.Message):
+        prefijos = ("!", ".", "/", "$", ">")
+        if after.id not in self.message_map or before.content == after.content or after.content.startswith(prefijos):
+            return
+
         for msg in self.message_map[after.id]:
             target_lang = LANG_CHANNELS.get(msg.channel.name.lower())
             if not target_lang: continue
-
             new_text = await asyncio.to_thread(self.translate_text, after.content, target_lang)
             if new_text:
-                try:
-                    await msg.edit(content=new_text)
-                except Exception as e:
-                    logger.error(f"No se pudo editar la traducción: {e}")
+                try: await msg.edit(content=new_text)
+                except: pass
 
 async def setup(bot):
     await bot.add_cog(Translator(bot))
