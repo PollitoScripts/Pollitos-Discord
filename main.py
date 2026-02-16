@@ -126,8 +126,12 @@ async def start_bot_loop():
 # ----------------------------
 # Ejecutar
 # ----------------------------
+async def main():
+    # Arranca el autoping
+    asyncio.create_task(self_ping())
+    # Arranca el bot
+    await start_bot_loop()
+
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(self_ping())       # arranca el autoping en paralelo
-    loop.run_until_complete(start_bot_loop())
+    asyncio.run(main())
 
