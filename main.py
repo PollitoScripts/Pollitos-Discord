@@ -9,6 +9,7 @@ from flask import Flask
 from threading import Thread
 import time
 import requests  # <-- necesario para el autoping
+import webserver  # Esto arranca Flask en paralelo
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
