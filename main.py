@@ -93,6 +93,7 @@ async def servicios(ctx):
 
 #### Token ####
 
+
 # Ejecuta el bot con el token proporcionado en la variable de entorno
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
@@ -145,3 +146,8 @@ def start_bot():
 # ----------------------------
 if __name__ == "__main__":
     start_bot()
+
+# Ejecuta el bot con el token proporcionado en el archivo de configuración
+TOKEN = os.getenv("DISCORD_TOKEN")
+bot.run(TOKEN)
+
