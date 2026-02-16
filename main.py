@@ -6,10 +6,11 @@ import json
 import asyncio
 import time
 import requests
+from cogs import webserver
 from threading import Thread
 
-# Importa tu webserver desde cogs
-from cogs import webserver  # cogs/webserver.py
+Thread(target=webserver.run, daemon=True).start()
+
 
 # ----------------------------
 # Configuración del bot
