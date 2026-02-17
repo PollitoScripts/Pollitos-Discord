@@ -90,25 +90,25 @@ async def self_ping():
 # ----------------------------
 # Inicio del Bot
 # ----------------------------
+# --- Al final de tu archivo main.py ---
+
 async def main():
     TOKEN = os.getenv("DISCORD_TOKEN")
     if not TOKEN:
         print("❌ ERROR: No hay DISCORD_TOKEN.")
         return
 
-    # Lanzamos el webserver en un hilo tradicional
+    # 1. Lanzamos el webserver en un hilo separado (Thread)
+    # Esto es vital para que no bloquee el inicio del bot
     t = Thread(target=run_web, daemon=True)
     t.start()
-    print("🌐 Webserver iniciado.")
+    print("🌐 Webserver iniciado en hilo separado.")
 
-    # Lanzamos el autoping como tarea de fondo
+    # 2. Lanzamos el autoping como tarea de fondo
     asyncio.create_task(self_ping())
 
-    # Arrancamos el bot directamente (el watchdog lo maneja Render al reiniciar el proceso)
-    try:
-        await bot.start(TOKEN)
-    except Exception as e:
-        print(f"❌ Error fatal al conectar: {e}")
+    # 3. Arrancamos el bot (Esta debe ser la ÚLTIMA línea)
+    await bot.start(TOKEN)
 
 if __name__ == "__main__":
     asyncio.run(main())
