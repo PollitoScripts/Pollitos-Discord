@@ -9,12 +9,13 @@ import requests
 from cogs import webserver
 from threading import Thread
 
+# Iniciamos el webserver antes que nada
 Thread(target=webserver.run, daemon=True).start()
-
 
 # ----------------------------
 # Configuración del bot
 # ----------------------------
+# Asegúrate de tener activados los 3 Intents en el Discord Developer Portal
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
 # ----------------------------
@@ -35,16 +36,13 @@ async def load_extensions():
 # Servicio de ejemplo: enviar mensajes con embeds
 # ----------------------------
 async def services():
+    # Buscamos el canal definido en config
     channel = bot.get_channel(config.channel_id)
+    
+    # CAMBIO CRÍTICO: Si el canal no existe (como en tu nuevo servidor),
+    # el bot simplemente avisa y sale de la función sin quedarse atrapado.
     if channel is None:
-        for _ in range(5):
-            print(f"⚠️ No se encontró el canal {config.channel_id}, reintentando en 5s...")
-            await asyncio.sleep(5)
-            channel = bot.get_channel(config.channel_id)
-            if channel:
-                break
-    if channel is None:
-        print("❌ No se pudo acceder al canal después de varios intentos.")
+        print(f"ℹ️ Canal {config.channel_id} no encontrado. Saltando servicios de streaming (esto es normal en servidores nuevos).")
         return
 
     print(f"Enviando mensajes al canal {channel.name}...")
@@ -86,7 +84,12 @@ async def services():
 @bot.event
 async def on_ready():
     print(f"Bot conectado como {bot.user.name}")
+    # Cargamos los cogs primero para que el sistema de clientes esté listo
     await load_extensions()
+    
+    # Lanzamos la actualización de servicios como una tarea de fondo
+    # para que si falla o no encuentra el canal, no afecte al bot.
+    asyncio.create_task(services())
 
 # Comando de prueba para enviar servicios
 @bot.command()
@@ -98,7 +101,9 @@ async def servicios(ctx):
 # Webserver en paralelo
 # ----------------------------
 def start_webserver():
-    Thread(target=webserver.run).start()
+    # Nota: webserver.run ya se inicia arriba con daemon=True, 
+    # mantenemos esto por compatibilidad con tu función main()
+    pass
 
 # ----------------------------
 # Autoping para Render
@@ -107,6 +112,8 @@ async def self_ping():
     url = "https://pollitos-discord.onrender.com/"
     while True:
         try:
+            # Esperamos a que el bot esté listo antes del primer ping
+            await asyncio.sleep(60) 
             print("🔔 Ping al Web Service para mantenerlo activo...")
             requests.get(url)
         except Exception as e:
@@ -134,7 +141,7 @@ async def start_bot_loop():
 # Función principal
 # ----------------------------
 async def main():
-    start_webserver()                # Levanta Flask
+    # start_webserver() se omite aquí porque ya corre al inicio del script
     asyncio.create_task(self_ping()) # Arranca autoping
     await start_bot_loop()           # Arranca bot con watchdog
 
@@ -142,4 +149,7 @@ async def main():
 # Ejecutar
 # ----------------------------
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot apagado manualmente.")
