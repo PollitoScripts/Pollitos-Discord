@@ -6,3 +6,5 @@ deep-translator
 aiohttp
 requests
 discord.py
+quart
+quart-cors
