@@ -8,10 +8,52 @@ import time
 import requests
 from cogs import webserver
 from threading import Thread
+# Nuevas importaciones para la API de tickets
+from quart import Quart, request
+from quart_cors import cors
 
-# 1. El servidor web debe ir en un hilo totalmente separado y "daemon"
+# ----------------------------
+# Configuración de la API (Tickets)
+# ----------------------------
+app = Quart(__name__)
+app = cors(app) # Permite peticiones desde dominios externos como GitHub Pages
+
+@app.route('/ticket', methods=['POST'])
+async def handle_ticket():
+    data = await request.get_json()
+    
+    # Obtenemos el canal de soporte desde config o variables de entorno
+    # Usamos la variable ID_CANAL_SOPORTE que configuramos en Render
+    canal_id = int(os.getenv('ID_CANAL_SOPORTE', 0))
+    canal = bot.get_channel(canal_id)
+    
+    if canal:
+        embed = discord.Embed(
+            title="🚀 Nueva Entrada de Soporte (Web)",
+            color=discord.Color.blue(),
+            timestamp=discord.utils.utcnow()
+        )
+        embed.add_field(name="👤 Cliente", value=data.get('nombre', 'Desconocido'), inline=True)
+        embed.add_field(name="📧 Email", value=data.get('email', 'N/A'), inline=True)
+        embed.add_field(name="🔑 ID Contrato", value=data.get('cliente_id') or "GUEST", inline=True)
+        embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
+        embed.set_footer(text="Blitz Hub System")
+        
+        # Enviamos el mensaje al canal de soporte
+        await canal.send(embed=embed)
+        return {"status": "success", "message": "Ticket enviado correctamente"}, 200
+    
+    return {"status": "error", "message": "Configuración de canal inválida"}, 500
+
+# ----------------------------
+# Hilo del Servidor Web
+# ----------------------------
 def run_web():
-    webserver.run()
+    # Iniciamos Quart en el puerto que Render asigna
+    port = int(os.getenv("PORT", 8080))
+    # Quart requiere su propio loop o ejecutarse de forma específica
+    # Usamos app.run para el hilo separado
+    app.run(host='0.0.0.0', port=port)
 
 # ----------------------------
 # Configuración del bot
@@ -32,12 +74,12 @@ async def load_extensions():
                 print(f"❌ Error en '{filename}': {e}")
 
 # ----------------------------
-# Servicio de streaming (Solo manual)
+# Servicio de streaming (Sin cambios)
 # ----------------------------
 async def services():
     channel = bot.get_channel(config.channel_id)
     if channel is None:
-        print(f"ℹ️ Canal {config.channel_id} no encontrado. Función 'servicios' disponible solo donde exista el canal.")
+        print(f"ℹ️ Canal {config.channel_id} no encontrado.")
         return
 
     try:
@@ -72,14 +114,13 @@ async def servicios(ctx):
     await ctx.send("Servicios enviados.")
 
 # ----------------------------
-# Autoping (Corregido para no saturar)
+# Autoping
 # ----------------------------
 async def self_ping():
-    await asyncio.sleep(60) # Espera 1 minuto a que todo estabilice
+    await asyncio.sleep(60) 
     url = "https://pollitos-discord.onrender.com/"
     while True:
         try:
-            # Usamos un hilo para el request de red para no bloquear el bot
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, requests.get, url)
             print("🔔 Autoping exitoso.")
@@ -90,25 +131,26 @@ async def self_ping():
 # ----------------------------
 # Inicio del Bot
 # ----------------------------
-# --- Al final de tu archivo main.py ---
-
 async def main():
     TOKEN = os.getenv("DISCORD_TOKEN")
     if not TOKEN:
         print("❌ ERROR: No hay DISCORD_TOKEN.")
         return
 
-    # 1. Lanzamos el webserver en un hilo separado (Thread)
-    # Esto es vital para que no bloquee el inicio del bot
+    # 1. Lanzamos el servidor de tickets y web en el hilo separado
     t = Thread(target=run_web, daemon=True)
     t.start()
-    print("🌐 Webserver iniciado en hilo separado.")
+    print("🌐 API de Tickets y Webserver iniciados en hilo separado.")
 
-    # 2. Lanzamos el autoping como tarea de fondo
+    # 2. Lanzamos el autoping
     asyncio.create_task(self_ping())
 
-    # 3. Arrancamos el bot (Esta debe ser la ÚLTIMA línea)
-    await bot.start(TOKEN)
+    # 3. Arrancamos el bot
+    async with bot:
+        await bot.start(TOKEN)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("🛑 Bot apagado manualmente.")
