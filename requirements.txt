@@ -4,5 +4,5 @@ flask==2.3.3
 rich==14.2.0
 deep-translator
 aiohttp
-
-
+requests
+discord.py
