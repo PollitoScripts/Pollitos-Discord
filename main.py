@@ -89,7 +89,7 @@ async def on_ready():
     
     # Lanzamos la actualización de servicios como una tarea de fondo
     # para que si falla o no encuentra el canal, no afecte al bot.
-    asyncio.create_task(services())
+    
 
 # Comando de prueba para enviar servicios
 @bot.command()
