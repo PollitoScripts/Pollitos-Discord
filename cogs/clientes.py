@@ -17,6 +17,7 @@ class ClientesCog(commands.Cog):
         """Lee los clientes desde GitHub Gist"""
         headers = {"Authorization": f"token {self.github_token}"}
         r = requests.get(f"https://api.github.com/gists/{self.gist_id}", headers=headers)
+        r.raise_for_status() # Lanza error si la petición falla
         gist = r.json()
         content = gist['files']['clientes.json']['content']
         return json.loads(content)
@@ -25,7 +26,8 @@ class ClientesCog(commands.Cog):
         """Actualiza el archivo en GitHub Gist"""
         headers = {"Authorization": f"token {self.github_token}"}
         payload = {"files": {"clientes.json": {"content": json.dumps(data, indent=4)}}}
-        requests.patch(f"https://api.github.com/gists/{self.gist_id}", headers=headers, json=payload)
+        r = requests.patch(f"https://api.github.com/gists/{self.gist_id}", headers=headers, json=payload)
+        r.raise_for_status()
 
     # --- COMANDO: ALTA CLIENTE ---
     @commands.command(name="alta")
@@ -42,12 +44,36 @@ class ClientesCog(commands.Cog):
             
             await ctx.send(f"✅ **Cliente Registrado**\nEmpresa: {empresa}\nID Soporte: `{nuevo_id}`")
         except Exception as e:
-            await ctx.send(f"❌ Error al conectar con Gist: {e}")
+            await ctx.send(f"❌ Error al procesar el alta: {e}")
+
+    # --- COMANDO: DIAGNÓSTICO ---
+    @commands.command(name="check_hub")
+    @commands.has_permissions(administrator=True)
+    async def check_hub(self, ctx):
+        """Verifica la conexión con el Gist de GitHub"""
+        await ctx.send("🔍 Iniciando diagnóstico de conexión...")
+        
+        try:
+            headers = {"Authorization": f"token {self.github_token}"}
+            r = requests.get(f"https://api.github.com/gists/{self.gist_id}", headers=headers)
+            
+            if r.status_code == 200:
+                clientes = self._get_clientes()
+                num_clientes = len(clientes)
+                await ctx.send(f"✅ **Conexión Exitosa.**\n📂 Archivo: `clientes.json` detectado.\n👥 Clientes en base de datos: `{num_clientes}`")
+            elif r.status_code == 404:
+                await ctx.send("❌ **Error 404:** No se encontró el Gist. Revisa el `GIST_ID`.")
+            elif r.status_code == 401:
+                await ctx.send("❌ **Error 401:** Token no válido. Revisa el `GITHUB_TOKEN`.")
+            else:
+                await ctx.send(f"⚠️ **Error inesperado:** Código {r.status_code}")
+                
+        except Exception as e:
+            await ctx.send(f"💀 **Fallo crítico:** {str(e)}")
 
     # --- LISTENER: VERIFICADOR DE WEBHOOKS ---
     @commands.Cog.listener()
     async def on_message(self, message):
-        # Evitar bucles y filtrar por el nombre del Webhook que pusimos en el HTML
         if message.author.bot and message.author.name == "Blitz Web Intake":
             if not message.embeds:
                 return
@@ -55,10 +81,8 @@ class ClientesCog(commands.Cog):
             embed = message.embeds[0]
             id_proporcionado = "GUEST"
 
-            # Buscar el campo ID Contrato en el embed
             for field in embed.fields:
                 if "ID Contrato" in field.name:
-                    # Limpiamos posibles comillas de formato markdown
                     id_proporcionado = field.value.replace("`", "").strip()
             
             try:
