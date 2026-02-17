@@ -17,7 +17,7 @@ class Translator(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.webhook_cache = {}
-        self.message_map = {} # {id_original: [lista_de_mensajes_enviados_por_webhook]}
+        self.message_map = {} 
 
     async def get_webhook(self, channel: discord.TextChannel):
         if channel.id in self.webhook_cache:
@@ -80,23 +80,36 @@ class Translator(commands.Cog):
         if translated_msgs:
             self.message_map[message.id] = translated_msgs
 
-    # --- NUEVA LÓGICA PARA REACCIONES ---
+    # --- REPLICAR AÑADIR REACCIÓN ---
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        # Evitar que el bot reaccione a sí mismo
         if payload.user_id == self.bot.user.id:
             return
 
-        # Verificar si el mensaje reaccionado es uno de los mensajes originales
         if payload.message_id in self.message_map:
             for translated_msg in self.message_map[payload.message_id]:
                 try:
-                    # Obtenemos el canal y el mensaje traducido para añadir la reacción
                     channel = self.bot.get_channel(translated_msg.channel.id)
                     msg = await channel.fetch_message(translated_msg.id)
                     await msg.add_reaction(payload.emoji)
-                except Exception as e:
-                    logger.error(f"No se pudo replicar la reacción: {e}")
+                except Exception:
+                    pass
+
+    # --- NUEVO: REPLICAR QUITAR REACCIÓN ---
+    @commands.Cog.listener()
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        if payload.user_id == self.bot.user.id:
+            return
+
+        if payload.message_id in self.message_map:
+            for translated_msg in self.message_map[payload.message_id]:
+                try:
+                    channel = self.bot.get_channel(translated_msg.channel.id)
+                    msg = await channel.fetch_message(translated_msg.id)
+                    # El bot quita SU reacción (la que replicó antes)
+                    await msg.remove_reaction(payload.emoji, self.bot.user)
+                except Exception:
+                    pass
 
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
