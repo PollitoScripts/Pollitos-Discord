@@ -109,16 +109,17 @@ def start_webserver():
 # Autoping para Render
 # ----------------------------
 async def self_ping():
+    await asyncio.sleep(30) # Esperamos a que el bot arranque
     url = "https://pollitos-discord.onrender.com/"
+    # Usamos una sola sesión para evitar el error de "Unclosed client session"
     while True:
         try:
-            # Esperamos a que el bot esté listo antes del primer ping
-            await asyncio.sleep(60) 
-            print("🔔 Ping al Web Service para mantenerlo activo...")
-            requests.get(url)
+            # Usamos requests de forma sencilla ya que está en un hilo aparte o tarea
+            requests.get(url, timeout=10)
+            print("🔔 Ping enviado correctamente.")
         except Exception as e:
             print(f"⚠️ Error en ping: {e}")
-        await asyncio.sleep(10 * 60)  # 10 minutos
+        await asyncio.sleep(600) # 10 minutos
 
 # ----------------------------
 # Watchdog para reiniciar el bot
