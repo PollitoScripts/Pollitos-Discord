@@ -9,43 +9,36 @@ import requests
 from cogs import webserver
 from threading import Thread
 
-# Iniciamos el webserver antes que nada
-Thread(target=webserver.run, daemon=True).start()
+# 1. El servidor web debe ir en un hilo totalmente separado y "daemon"
+def run_web():
+    webserver.run()
 
 # ----------------------------
 # Configuración del bot
 # ----------------------------
-# Asegúrate de tener activados los 3 Intents en el Discord Developer Portal
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
 # ----------------------------
 # Función para cargar cogs
 # ----------------------------
 async def load_extensions():
-    print("Cargando extensiones...")
+    print("📂 Cargando extensiones...")
     for filename in os.listdir("./cogs"):
-        if filename.endswith(".py") and filename != "__init__.py" and filename != "webserver.py":
+        if filename.endswith(".py") and filename not in ["__init__.py", "webserver.py"]:
             try:
                 await bot.load_extension(f"cogs.{filename[:-3]}")
-                print(f"Cog cargado: {filename}")
+                print(f"✅ Cog cargado: {filename}")
             except Exception as e:
-                print(f"No se pudo cargar '{filename}': {e}")
-    print("Extensiones cargadas.")
+                print(f"❌ Error en '{filename}': {e}")
 
 # ----------------------------
-# Servicio de ejemplo: enviar mensajes con embeds
+# Servicio de streaming (Solo manual)
 # ----------------------------
 async def services():
-    # Buscamos el canal definido en config
     channel = bot.get_channel(config.channel_id)
-    
-    # CAMBIO CRÍTICO: Si el canal no existe (como en tu nuevo servidor),
-    # el bot simplemente avisa y sale de la función sin quedarse atrapado.
     if channel is None:
-        print(f"ℹ️ Canal {config.channel_id} no encontrado. Saltando servicios de streaming (esto es normal en servidores nuevos).")
+        print(f"ℹ️ Canal {config.channel_id} no encontrado. Función 'servicios' disponible solo donde exista el canal.")
         return
-
-    print(f"Enviando mensajes al canal {channel.name}...")
 
     try:
         await channel.purge()
@@ -53,104 +46,69 @@ async def services():
             streaming_services = json.load(file)["streaming_services"]
 
         for service in streaming_services:
-            embed = discord.Embed(
-                title=service["name"],
-                description=service["description"],
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title=service["name"], description=service["description"], color=discord.Color.blue())
             embed.set_thumbnail(url=service["image"])
-
             for plan in service["plans"]:
-                plan_details = ""
-                if plan["price_per_month"] != 0:
-                    plan_details += f"**Precio**: ${plan['price_per_month']}\n"
-                if plan["resolution"] != "N/A":
-                    plan_details += f"**Resolución**: {plan['resolution']}\n"
-                if "ads" in plan and plan["ads"] != "No Ads":
-                    plan_details += f"**Anuncios**: {plan['ads']}\n"
-
-                embed.add_field(name=plan["name"], value=plan_details, inline=True)
-
-            message = await channel.send(embed=embed)
-            await message.add_reaction("✅")
-
-        print("Mensajes enviados correctamente.")
+                details = f"**Precio**: ${plan['price_per_month']}\n" if plan["price_per_month"] != 0 else ""
+                details += f"**Resolución**: {plan['resolution']}\n" if plan["resolution"] != "N/A" else ""
+                embed.add_field(name=plan["name"], value=details if details else "Información no disponible", inline=True)
+            await channel.send(embed=embed)
+        print("✅ Mensajes de servicios actualizados.")
     except Exception as e:
-        print(f"Error al enviar mensajes: {e}")
+        print(f"❌ Error en services: {e}")
 
 # ----------------------------
-# Eventos del bot
+# Eventos
 # ----------------------------
 @bot.event
 async def on_ready():
-    print(f"Bot conectado como {bot.user.name}")
-    # Cargamos los cogs primero para que el sistema de clientes esté listo
+    print(f"🤖 BOT ONLINE: {bot.user.name}")
+    print(f"🌍 Conectado a {len(bot.guilds)} servidores.")
     await load_extensions()
-    
-    # Lanzamos la actualización de servicios como una tarea de fondo
-    # para que si falla o no encuentra el canal, no afecte al bot.
-    
 
-# Comando de prueba para enviar servicios
 @bot.command()
 async def servicios(ctx):
     await services()
     await ctx.send("Servicios enviados.")
 
 # ----------------------------
-# Webserver en paralelo
-# ----------------------------
-def start_webserver():
-    # Nota: webserver.run ya se inicia arriba con daemon=True, 
-    # mantenemos esto por compatibilidad con tu función main()
-    pass
-
-# ----------------------------
-# Autoping para Render
+# Autoping (Corregido para no saturar)
 # ----------------------------
 async def self_ping():
-    await asyncio.sleep(30) # Esperamos a que el bot arranque
+    await asyncio.sleep(60) # Espera 1 minuto a que todo estabilice
     url = "https://pollitos-discord.onrender.com/"
-    # Usamos una sola sesión para evitar el error de "Unclosed client session"
     while True:
         try:
-            # Usamos requests de forma sencilla ya que está en un hilo aparte o tarea
-            requests.get(url, timeout=10)
-            print("🔔 Ping enviado correctamente.")
-        except Exception as e:
-            print(f"⚠️ Error en ping: {e}")
-        await asyncio.sleep(600) # 10 minutos
+            # Usamos un hilo para el request de red para no bloquear el bot
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, requests.get, url)
+            print("🔔 Autoping exitoso.")
+        except:
+            pass
+        await asyncio.sleep(600)
 
 # ----------------------------
-# Watchdog para reiniciar el bot
-# ----------------------------
-async def start_bot_loop():
-    TOKEN = os.getenv("DISCORD_TOKEN")
-    if not TOKEN:
-        raise ValueError("No se encontró DISCORD_TOKEN en Render.")
-
-    while True:
-        try:
-            print("⚡ Iniciando bot...")
-            await bot.start(TOKEN)
-        except Exception as e:
-            print(f"❌ Bot crasheó: {e}")
-            print("⏳ Reiniciando en 5 segundos...")
-            await asyncio.sleep(5)
-
-# ----------------------------
-# Función principal
+# Inicio del Bot
 # ----------------------------
 async def main():
-    # start_webserver() se omite aquí porque ya corre al inicio del script
-    asyncio.create_task(self_ping()) # Arranca autoping
-    await start_bot_loop()           # Arranca bot con watchdog
+    TOKEN = os.getenv("DISCORD_TOKEN")
+    if not TOKEN:
+        print("❌ ERROR: No hay DISCORD_TOKEN.")
+        return
 
-# ----------------------------
-# Ejecutar
-# ----------------------------
-if __name__ == "__main__":
+    # Lanzamos el webserver en un hilo tradicional
+    t = Thread(target=run_web, daemon=True)
+    t.start()
+    print("🌐 Webserver iniciado.")
+
+    # Lanzamos el autoping como tarea de fondo
+    asyncio.create_task(self_ping())
+
+    # Arrancamos el bot directamente (el watchdog lo maneja Render al reiniciar el proceso)
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Bot apagado manualmente.")
+        await bot.start(TOKEN)
+    except Exception as e:
+        print(f"❌ Error fatal al conectar: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
