@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+import config
 import os
 import json
 import asyncio
@@ -66,14 +67,11 @@ async def handle_ticket():
                 
                 # ESCRIBIR EN MAPA_DISCORD.JSON
                 if discord_id_web:
-                    # Recuperar mapa actual o crear uno nuevo
                     mapa_file = gist_data['files'].get('mapa_discord.json')
                     mapa = json.loads(mapa_file['content']) if mapa_file and mapa_file['content'].strip() else {}
                     
-                    # Actualizar
                     mapa[str(discord_id_web)] = cliente_id_raw if cliente_id_raw else "GUEST"
                     
-                    # Enviar parche a GitHub de forma inmediata (Síncrono para asegurar escritura)
                     payload = {
                         "description": "Update Discord Map",
                         "files": {
@@ -85,11 +83,9 @@ async def handle_ticket():
                     res_patch = requests.patch(f"https://api.github.com/gists/{gist_id}", headers=headers, json=payload)
                     if res_patch.status_code == 200:
                         print(f"✅ Gist sincronizado correctamente para {discord_id_web}")
-                    else:
-                        print(f"❌ Error GitHub PATCH: {res_patch.status_code} - {res_patch.text}")
 
         # ---------------------------------------------------------
-        # PROCESO DISCORD (Sin cambios en tu lógica)
+        # PROCESO DISCORD
         # ---------------------------------------------------------
         async def process_discord():
             await bot.wait_until_ready()
@@ -98,7 +94,6 @@ async def handle_ticket():
 
             member = guild.get_member(int(discord_id_web)) if discord_id_web.isdigit() else None
             
-            # Embed de Staff
             id_canal_staff = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE', 0))
             canal_staff = bot.get_channel(id_canal_staff)
 
@@ -116,7 +111,6 @@ async def handle_ticket():
                 alerta = f"👑 **¡ALERTA VIP!** {nombre_final}" if es_vip else None
                 await canal_staff.send(content=alerta, embed=embed)
 
-            # Crear canal si el miembro está
             if member:
                 suffix = datetime.now().strftime("%H%M")
                 nombre_canal = f"{nombre_final[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
@@ -142,21 +136,14 @@ async def handle_ticket():
         return {"status": "error", "message": str(e)}, 500
 
 # ----------------------------
-# Función de Servicios de Streaming (Intacta)
+# Función de Servicios de Streaming (RECUPERADA)
 # ----------------------------
 async def services():
     channel = bot.get_channel(config.channel_id)
-    
-    if channel is None:
-        print(f'⚠️ No se encontró el canal {config.channel_id}, reintentando...')
-        await asyncio.sleep(5)
-        channel = bot.get_channel(config.channel_id)
-
     if channel is None: return
 
     try:
         await channel.purge() 
-
         with open('json/streaming_services.json', 'r') as file:
             streaming_services = json.load(file)["streaming_services"]
 
@@ -174,19 +161,16 @@ async def services():
                     plan_details += f"**Precio**: {plan['price_per_month']}\n"
                 if plan.get('resolution') and plan['resolution'] != 'N/A':
                     plan_details += f"**Resolución**: {plan['resolution']}\n"
-                if plan.get('ads') and plan['ads'] != "No Ads":
-                    plan_details += f"**Anuncios**: {plan['ads']}\n"
-
+                
                 embed.add_field(name=plan["name"], value=plan_details, inline=True)
 
             message = await channel.send(embed=embed)
             await message.add_reaction('✅')
-        print('✅ Servicios de streaming actualizados.')
     except Exception as e:
         print(f'❌ Error en services: {e}')
 
 # ----------------------------
-# Setup de Bot y Servidor (Igual que el tuyo)
+# Setup de Bot y Servidor
 # ----------------------------
 def run_web():
     port = int(os.getenv("PORT", 8080))
