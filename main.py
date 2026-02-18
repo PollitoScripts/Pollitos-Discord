@@ -27,7 +27,7 @@ async def handle_ticket():
     try:
         data = await request.get_json()
         
-        # 1. Recogida de datos
+        # 1. Recogida de datos inicial
         cliente_id_raw = data.get('cliente_id', "").strip().upper()
         nombre_usuario = data.get('nombre', 'Desconocido')
         # Si no pone empresa, por defecto es PARTICULAR
@@ -37,19 +37,24 @@ async def handle_ticket():
         gist_id = os.getenv('GIST_ID')
         github_token = os.getenv('GITHUB_TOKEN')
         
-        # 2. Validación Real contra Gist
+        # 2. Validación Real contra Gist (Lógica JSON que respeta el nombre del usuario)
         if gist_id and github_token and cliente_id_raw and cliente_id_raw != "GUEST":
             try:
                 headers = {"Authorization": f"token {github_token}"}
                 response_gist = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
+                
                 if response_gist.status_code == 200:
                     gist_data = response_gist.json()
-                    for file in gist_data['files'].values():
-                        if cliente_id_raw in file['content'].upper():
-                            es_vip = True
-                            break
+                    # Accedemos al archivo clientes.json
+                    clientes_db = json.loads(gist_data['files']['clientes.json']['content'])
+                    
+                    if cliente_id_raw in clientes_db:
+                        es_vip = True
+                        # Solo sobreescribimos si el usuario dejó el campo vacío en la web
+                        if nombre_empresa == "PARTICULAR":
+                            nombre_empresa = clientes_db[cliente_id_raw].get('empresa', 'EMPRESA VIP')
             except Exception as ge:
-                print(f"⚠️ Error Gist: {ge}")
+                print(f"⚠️ Error validando Gist: {ge}")
 
         # 3. Selección de canal según el resultado de la validación
         id_canal_guest = os.getenv('ID_CANAL_SOPORTE')
@@ -61,14 +66,12 @@ async def handle_ticket():
             canal = await bot.fetch_channel(canal_id_final)
 
         # 4. Estética DINÁMICA
-        # Si es VIP: Dorado y Corona. Si no: Azul y nombre de empresa normal.
         color_final = discord.Color.gold() if es_vip else discord.Color.blue()
         
         if es_vip:
             titulo_final = f"👑 VIP: {nombre_empresa}"
             status_footer = "EMPRESA VERIFICADA ✅"
         else:
-            # Aquí está el cambio: mantiene el nombre de empresa pero avisa que NO es verificado
             titulo_final = f"👤 CONSULTA: {nombre_empresa}"
             status_footer = "ID NO VÁLIDO / GUEST ⚠️"
 
@@ -96,10 +99,9 @@ async def handle_ticket():
         return {"status": "error", "message": str(e)}, 500
 
 # ----------------------------
-# Función de Servicios de Streaming (Recuperada)
+# Función de Servicios de Streaming (Intacta)
 # ----------------------------
 async def services():
-    # Usamos la ID del canal desde tu config
     channel = bot.get_channel(config.channel_id)
     
     if channel is None:
@@ -110,7 +112,7 @@ async def services():
     if channel is None: return
 
     try:
-        await channel.purge() # Limpia el canal
+        await channel.purge() 
 
         with open('json/streaming_services.json', 'r') as file:
             streaming_services = json.load(file)["streaming_services"]
@@ -136,7 +138,7 @@ async def services():
 
             message = await channel.send(embed=embed)
             await message.add_reaction('✅')
-        print('✅ Servicios de streaming actualizados en el canal.')
+        print('✅ Servicios de streaming actualizados.')
     except Exception as e:
         print(f'❌ Error en services: {e}')
 
@@ -186,11 +188,8 @@ async def self_ping():
 
 async def main():
     TOKEN = os.getenv("DISCORD_TOKEN")
-    # API en hilo separado
     Thread(target=run_web, daemon=True).start()
-    # Autoping
     asyncio.create_task(self_ping())
-    # Arrancar Bot
     async with bot:
         await bot.start(TOKEN)
 
