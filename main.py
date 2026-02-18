@@ -4,11 +4,9 @@ import config
 import os
 import json
 import asyncio
-import time
 import requests
-from cogs import webserver
 from threading import Thread
-# Nuevas importaciones para la API de tickets
+# Importaciones para la API
 from quart import Quart, request
 from quart_cors import cors
 from hypercorn.asyncio import serve
@@ -18,32 +16,36 @@ from hypercorn.config import Config
 # Configuración de la API (Tickets)
 # ----------------------------
 app = Quart(__name__)
-# Modificado para permitir conexiones desde cualquier origen (GitHub Pages)
+# Permitimos CORS para que tu GitHub Pages pueda hablar con Render
 app = cors(app, allow_origin="*") 
+
+@app.route('/')
+async def index():
+    return {"status": "online", "message": "Blitz Hub API is running"}, 200
 
 @app.route('/ticket', methods=['POST'])
 async def handle_ticket():
     try:
         data = await request.get_json()
         
-        # Obtenemos el canal de soporte desde variables de entorno
+        # Obtenemos el canal de soporte
         canal_id_env = os.getenv('ID_CANAL_SOPORTE')
         if not canal_id_env:
             return {"status": "error", "message": "Variable ID_CANAL_SOPORTE no configurada"}, 500
             
         canal_id = int(canal_id_env)
-        
-        # Intentamos obtener el canal (Caché -> API)
         canal = bot.get_channel(canal_id)
+        
         if not canal:
             try:
                 canal = await bot.fetch_channel(canal_id)
             except:
-                return {"status": "error", "message": "Canal no encontrado"}, 500
+                return {"status": "error", "message": "Canal no encontrado en Discord"}, 500
 
+        # Preparamos el Embed para Discord
         embed = discord.Embed(
             title="🚀 Nueva Entrada de Soporte (Web)",
-            color=discord.Color.blue(),
+            color=discord.Color.green(),
             timestamp=discord.utils.utcnow()
         )
         embed.add_field(name="👤 Cliente", value=data.get('nombre', 'Desconocido'), inline=True)
@@ -52,112 +54,78 @@ async def handle_ticket():
         embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
         embed.set_footer(text="Blitz Hub System")
         
-        # Aseguramos que el bot esté listo antes de enviar
-        await bot.wait_until_ready()
-        await canal.send(embed=embed)
+        # --- SOLUCIÓN AL ERROR DE CONEXIÓN (THREAD-SAFE) ---
+        # Enviamos el mensaje usando el loop del Bot desde el hilo de la API
+        async def send_msg():
+            await bot.wait_until_ready()
+            await canal.send(embed=embed)
+
+        bot.loop.create_task(send_msg())
+        # --------------------------------------------------
         
-        return {"status": "success", "message": "Ticket enviado correctamente"}, 200
+        return {"status": "success", "message": "Ticket recibido"}, 200
+
     except Exception as e:
         print(f"⚠️ Error en API: {e}")
         return {"status": "error", "message": str(e)}, 500
 
 # ----------------------------
-# Hilo del Servidor Web
+# Hilo del Servidor Web (Hypercorn)
 # ----------------------------
 def run_web():
     port = int(os.getenv("PORT", 8080))
-    config_hyper = Config() # Renombrado para no chocar con tu import 'config'
+    config_hyper = Config()
     config_hyper.bind = [f"0.0.0.0:{port}"]
     
+    # Creamos un nuevo loop para Quart en este hilo
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    # Evento de apagado para evitar el error de hilos en Python 3.14
     shutdown_event = asyncio.Event()
-    
-    print(f"🌐 API de Tickets activa en puerto: {port}")
+    print(f"🌐 API activa en puerto: {port}")
     
     try:
-        # Se añade shutdown_trigger para evitar que Hypercorn registre señales de sistema
         loop.run_until_complete(serve(app, config_hyper, shutdown_trigger=shutdown_event.wait))
     except Exception as e:
-        print(f"⚠️ Error en el servidor web: {e}")
+        print(f"⚠️ Error servidor web: {e}")
 
 # ----------------------------
 # Configuración del bot
 # ----------------------------
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
-# ----------------------------
-# Función para cargar cogs
-# ----------------------------
 async def load_extensions():
-    print("📂 Cargando extensiones...")
+    if not os.path.exists("./cogs"): return
     for filename in os.listdir("./cogs"):
         if filename.endswith(".py") and filename not in ["__init__.py", "webserver.py"]:
             try:
                 await bot.load_extension(f"cogs.{filename[:-3]}")
-                print(f"✅ Cog cargado: {filename}")
             except Exception as e:
                 print(f"❌ Error en '{filename}': {e}")
 
 # ----------------------------
-# Servicio de streaming (Sin cambios)
-# ----------------------------
-async def services():
-    channel = bot.get_channel(config.channel_id)
-    if channel is None:
-        print(f"ℹ️ Canal {config.channel_id} no encontrado.")
-        return
-
-    try:
-        await channel.purge()
-        with open("json/streaming_services.json", "r") as file:
-            streaming_services = json.load(file)["streaming_services"]
-
-        for service in streaming_services:
-            embed = discord.Embed(title=service["name"], description=service["description"], color=discord.Color.blue())
-            embed.set_thumbnail(url=service["image"])
-            for plan in service["plans"]:
-                details = f"**Precio**: ${plan['price_per_month']}\n" if plan["price_per_month"] != 0 else ""
-                details += f"**Resolución**: {plan['resolution']}\n" if plan["resolution"] != "N/A" else ""
-                embed.add_field(name=plan["name"], value=details if details else "Información no disponible", inline=True)
-            await channel.send(embed=embed)
-        print("✅ Mensajes de servicios actualizados.")
-    except Exception as e:
-        print(f"❌ Error en services: {e}")
-
-# ----------------------------
-# Eventos
+# Eventos & Tareas
 # ----------------------------
 @bot.event
 async def on_ready():
     print(f"🤖 BOT ONLINE: {bot.user.name}")
-    print(f"🌍 Conectado a {len(bot.guilds)} servidores.")
     await load_extensions()
 
-@bot.command()
-async def servicios(ctx):
-    await services()
-    await ctx.send("Servicios enviados.")
-
-# ----------------------------
-# Autoping
-# ----------------------------
 async def self_ping():
-    await asyncio.sleep(60) 
+    await asyncio.sleep(30)
+    # URL de tu app en Render para que no se duerma
     url = "https://pollitos-discord.onrender.com/"
     while True:
         try:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, requests.get, url)
+            # Petición asíncrona simple
+            await asyncio.get_event_loop().run_in_executor(None, requests.get, url)
             print("🔔 Autoping exitoso.")
         except:
             pass
-        await asyncio.sleep(600)
+        await asyncio.sleep(600) # Cada 10 minutos
 
 # ----------------------------
-# Inicio del Bot
+# Inicio Principal
 # ----------------------------
 async def main():
     TOKEN = os.getenv("DISCORD_TOKEN")
@@ -165,15 +133,14 @@ async def main():
         print("❌ ERROR: No hay DISCORD_TOKEN.")
         return
 
-    # 1. Lanzamos el servidor de tickets y web en el hilo separado
+    # 1. API en hilo separado
     t = Thread(target=run_web, daemon=True)
     t.start()
-    print("🌐 API de Tickets y Webserver iniciados en hilo separado.")
 
-    # 2. Lanzamos el autoping
+    # 2. Tarea de autoping
     asyncio.create_task(self_ping())
 
-    # 3. Arrancamos el bot
+    # 3. Arrancar Bot
     async with bot:
         await bot.start(TOKEN)
 
@@ -181,4 +148,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("🛑 Bot apagado manualmente.")
+        pass
