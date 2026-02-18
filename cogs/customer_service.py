@@ -14,6 +14,7 @@ class CustomerService(commands.Cog):
         self.gist_id = os.getenv('GIST_ID')
         self.github_token = os.getenv('GITHUB_TOKEN')
         self.id_rol_dev = int(os.getenv('ID_ROL_DEV', 0))
+        self.id_cat_archivados = int(os.getenv('ID_CAT_ARCHIVADOS', 0))
         print("🛠️ Cog CustomerService cargado correctamente")
 
     # --- COMANDO DE ALTA ---
