@@ -32,8 +32,11 @@ async def index():
 async def handle_ticket():
     try:
         data = await request.get_json()
+        
+        # --- DEFINICIÓN DE VARIABLES ---
         cliente_id_raw = data.get('cliente_id', "").strip().upper()
         nombre_usuario = data.get('nombre', 'Desconocido')
+        email_usuario = data.get('email', 'No provisto') # <--- Aquí está
         nombre_empresa_web = data.get('empresa', '').strip().upper() 
         discord_id_web = data.get('discord_id', '').strip()
         problema = data.get('problema', 'Sin descripción')
@@ -44,7 +47,7 @@ async def handle_ticket():
         nombre_final = nombre_empresa_web if nombre_empresa_web else "GUEST"
 
         # ---------------------------------------------------------
-        # LÓGICA DE GIST (LECTURA Y ESCRITURA FORZADA)
+        # LÓGICA DE GIST (LECTURA Y ESCRITURA)
         # ---------------------------------------------------------
         if gist_id and github_token:
             headers = {
@@ -53,69 +56,61 @@ async def handle_ticket():
                 "User-Agent": "Blitz-Hub-Bot"
             }
             
-            # 1. Obtener datos actuales
             r = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
             if r.status_code == 200:
                 gist_data = r.json()
                 
-                # Verificar VIP
                 if 'clientes.json' in gist_data['files']:
                     db = json.loads(gist_data['files']['clientes.json']['content'])
                     if cliente_id_raw in db:
                         es_vip = True
                         nombre_final = db[cliente_id_raw].get('empresa', nombre_final)
                 
-                # ESCRIBIR EN MAPA_DISCORD.JSON
                 if discord_id_web:
                     mapa_file = gist_data['files'].get('mapa_discord.json')
                     mapa = json.loads(mapa_file['content']) if mapa_file and mapa_file['content'].strip() else {}
-                    
-                    mapa[str(discord_id_web)] = cliente_id_raw if cliente_id_raw else "GUEST"
+                    mapa[str(discord_id_web)] = cliente_id_raw if es_vip else "GUEST"
                     
                     payload = {
-                        "description": "Update Discord Map",
-                        "files": {
-                            "mapa_discord.json": {
-                                "content": json.dumps(mapa, indent=4)
-                            }
-                        }
+                        "files": {"mapa_discord.json": {"content": json.dumps(mapa, indent=4)}}
                     }
-                    res_patch = requests.patch(f"https://api.github.com/gists/{gist_id}", headers=headers, json=payload)
-                    if res_patch.status_code == 200:
-                        print(f"✅ Gist sincronizado correctamente para {discord_id_web}")
+                    requests.patch(f"https://api.github.com/gists/{gist_id}", headers=headers, json=payload)
 
         # ---------------------------------------------------------
-        # PROCESO DISCORD
+        # PROCESO DISCORD (Pasamos las variables dentro)
         # ---------------------------------------------------------
-        async def process_discord():
+        async def process_discord(email_int, nombre_final_int, es_vip_int): # Pasamos variables como argumentos
             await bot.wait_until_ready()
             guild = bot.get_guild(ID_SERVIDOR_BLITZ)
             if not guild: return
 
             member = guild.get_member(int(discord_id_web)) if discord_id_web.isdigit() else None
-            
-            id_canal_staff = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE', 0))
+            id_canal_staff = int(os.getenv('ID_CANAL_VIP' if es_vip_int else 'ID_CANAL_SOPORTE', 0))
             canal_staff = bot.get_channel(id_canal_staff)
 
             embed = discord.Embed(
-                title=f"🎫 Ticket: {nombre_final}", 
-                color=discord.Color.gold() if es_vip else discord.Color.blue(), 
+                title=f"🎫 Ticket: {nombre_final_int}", 
+                color=discord.Color.gold() if es_vip_int else discord.Color.blue(), 
                 timestamp=discord.utils.utcnow()
             )
-            embed.add_field(name="🏢 Empresa", value=f"**{nombre_final}**", inline=False)
+            embed.add_field(name="🏢 Empresa", value=f"**{nombre_final_int}**", inline=False)
             embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
             embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw or 'GUEST'}`", inline=True)
-            embed.add_field(name="📧 Contacto", value=f"`{email_usuario}`", inline=True) 
+            embed.add_field(name="📧 Contacto", value=f"`{email_int}`", inline=True) 
             embed.add_field(name="📝 Problema", value=problema, inline=False)
+            
+            # Línea opcional para ayudarte a dar el alta rápido:
+            if not es_vip_int:
+                embed.add_field(name="⚙️ Gestión", value=f"Usa `!alta \"{nombre_final_int}\" <@{discord_id_web}>` para activar.", inline=False)
 
             if canal_staff:
-                alerta = f"👑 **¡ALERTA VIP!** {nombre_final}" if es_vip else None
+                alerta = f"👑 **¡ALERTA VIP!** {nombre_final_int}" if es_vip_int else None
                 await canal_staff.send(content=alerta, embed=embed)
 
             if member:
                 suffix = datetime.now().strftime("%H%M")
-                nombre_canal = f"{nombre_final[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
-                cat_id = CAT_VIP if es_vip else CAT_ESTANDAR
+                nombre_canal = f"{nombre_final_int[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
+                cat_id = CAT_VIP if es_vip_int else CAT_ESTANDAR
                 category = guild.get_channel(cat_id)
 
                 overwrites = {
@@ -129,7 +124,9 @@ async def handle_ticket():
                 nuevo_canal = await guild.create_text_channel(name=nombre_canal, category=category, overwrites=overwrites)
                 await nuevo_canal.send(content=f"Hola {member.mention}, atenderemos tu incidencia aquí.", embed=embed)
 
-        bot.loop.create_task(process_discord())
+        # Lanzamos la tarea pasando los valores actuales
+        bot.loop.create_task(process_discord(email_usuario, nombre_final, es_vip))
+        
         return {"status": "success"}, 200
 
     except Exception as e:
