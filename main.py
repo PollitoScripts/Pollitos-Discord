@@ -31,8 +31,6 @@ async def index():
 async def handle_ticket():
     try:
         data = await request.get_json()
-        
-        # 1. Recogida de datos
         cliente_id_raw = data.get('cliente_id', "").strip().upper()
         nombre_usuario = data.get('nombre', 'Desconocido')
         nombre_empresa_web = data.get('empresa', '').strip().upper() 
@@ -42,70 +40,57 @@ async def handle_ticket():
         es_vip = False
         gist_id = os.getenv('GIST_ID')
         github_token = os.getenv('GITHUB_TOKEN')
-        
-        # 2. Lógica de Gist y VIP
+        nombre_final = nombre_empresa_web if nombre_empresa_web else "GUEST"
+
+        # Lógica de Gist para verificar VIP
         if gist_id and github_token:
             try:
                 headers = {"Authorization": f"token {github_token}"}
                 r = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
                 if r.status_code == 200:
-                    gist_content = r.json()
-                    db = json.loads(gist_content['files']['clientes.json']['content'])
+                    db = json.loads(r.json()['files']['clientes.json']['content'])
                     if cliente_id_raw in db:
                         es_vip = True
-                        nombre_final = db[cliente_id_raw].get('empresa', nombre_empresa_web)
-                    else:
-                        nombre_final = nombre_empresa_web if nombre_empresa_web else "GUEST"
-            except: nombre_final = nombre_empresa_web
+                        nombre_final = db[cliente_id_raw].get('empresa', nombre_final)
+            except: pass
 
-        # 3. Función interna para enviar/crear canal
-        async def process_discord_side():
+        async def process_discord():
             await bot.wait_until_ready()
-            
-            ID_CAT_ARCHIVADOS = 1473689333964738633
-            cat_id_activa = int(os.getenv('CAT_VIP_ID')) if es_vip else int(os.getenv('CAT_ESTANDAR_ID'))
-            
-            guild = bot.guilds[0] # El bot asume que está en tu servidor principal
+            guild = bot.guilds[0]
             member = guild.get_member(int(discord_id_web)) if discord_id_web.isdigit() else None
-
-            # Generamos un nombre único basado en tiempo o ID para que no colisione con el archivado
-            # Ejemplo: apple-pepe-1422
+            
+            # Siempre creamos un canal nuevo con timestamp para evitar colisiones
             from datetime import datetime
             suffix = datetime.now().strftime("%H%M")
-            nombre_nuevo_canal = f"{nombre_final.lower()}-{nombre_usuario.lower()}-{suffix}".replace(" ", "-")
-
-            # Definir Embed
-            embed = discord.Embed(title=f"🎫 Nueva Incidencia: {nombre_final}", color=discord.Color.gold() if es_vip else discord.Color.blue())
-            embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
-            embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
+            nombre_canal = f"{nombre_final[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
+            
+            cat_id = int(os.getenv('CAT_VIP_ID')) if es_vip else int(os.getenv('CAT_ESTANDAR_ID'))
+            
+            embed = discord.Embed(title=f"🎫 Ticket: {nombre_final}", color=discord.Color.gold() if es_vip else discord.Color.blue())
+            embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw or 'GUEST'}`")
             embed.add_field(name="📝 Problema", value=problema, inline=False)
 
             if member:
-                # EL USUARIO YA ESTÁ EN EL DISCORD -> CREAMOS CANAL DIRECTO
-                category = guild.get_channel(cat_id_activa)
+                category = guild.get_channel(cat_id)
                 overwrites = {
                     guild.default_role: discord.PermissionOverwrite(view_channel=False),
                     member: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
                     guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
                 }
-                # Dar acceso al Dev
                 rol_dev = guild.get_role(int(os.getenv('ID_ROL_DEV')))
                 if rol_dev: overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
-                nuevo_canal = await guild.create_text_channel(name=nombre_nuevo_canal, category=category, overwrites=overwrites)
-                await nuevo_canal.send(content=f"{member.mention} Bienvenido a tu nuevo ticket de soporte.", embed=embed)
-                if es_vip and rol_dev: await nuevo_canal.send(f"{rol_dev.mention} 🚨 Ticket VIP Urgente.")
+                channel = await guild.create_text_channel(name=nombre_canal, category=category, overwrites=overwrites)
+                await channel.send(content=f"{member.mention} Nuevo ticket abierto.", embed=embed)
             else:
-                # EL USUARIO NO ESTÁ -> Mandamos al canal de Staff general
-                canal_staff_id = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE'))
-                canal_staff = bot.get_channel(canal_staff_id)
-                await canal_staff.send(content=f"⚠️ Usuario fuera del server: <@{discord_id_web}>", embed=embed)
+                # Si el usuario no está en el server, avisamos por el canal de staff
+                staff_ch = bot.get_channel(int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE')))
+                await staff_ch.send(content=f"⚠️ Usuario externo: <@{discord_id_web}>", embed=embed)
 
-        bot.loop.create_task(process_discord_side())
-        return {"status": "success", "message": "Ticket procesado"}, 200
+        bot.loop.create_task(process_discord())
+        return {"status": "success"}, 200
 
     except Exception as e:
-        print(f"Error: {e}")
         return {"status": "error", "message": str(e)}, 500
 
 # ----------------------------
