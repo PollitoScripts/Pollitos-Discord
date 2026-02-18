@@ -65,7 +65,7 @@ async def handle_ticket():
                         if not nombre_empresa_web or nombre_empresa_web == "N/A":
                             nombre_final = db[cliente_id_raw].get('empresa', 'EMPRESA VIP')
 
-                    # --- B) MAPEADO AUTOMÁTICO SIEMPRE (Corregido) ---
+                    # --- B) MAPEADO AUTOMÁTICO SIEMPRE ---
                     if discord_id_web and 'mapa_discord.json' in gist_content['files']:
                         mapa = json.loads(gist_content['files']['mapa_discord.json']['content'])
                         vincular_id = cliente_id_raw if cliente_id_raw else "GUEST"
@@ -81,20 +81,17 @@ async def handle_ticket():
             except Exception as ge:
                 print(f"⚠️ Error Gist: {ge}")
 
-        # 4. Configuración de envío a canales
+        # 4. Configuración de envío inteligente
         id_canal_guest = os.getenv('ID_CANAL_SOPORTE')
         id_canal_vip = os.getenv('ID_CANAL_VIP')
-        canal_id_final = int(id_canal_vip) if es_vip and id_canal_vip else int(id_canal_guest)
+        ID_CAT_ARCHIVADOS = 1473689333964738633 # Categoría de Tickets Cerrados
         
-        canal = bot.get_channel(canal_id_final) or await bot.fetch_channel(canal_id_final)
-
         color_final = discord.Color.gold() if es_vip else discord.Color.blue()
         titulo_final = f"👑 VIP: {nombre_final}" if es_vip else f"👤 CONSULTA: {nombre_final}"
         status_footer = "EMPRESA VERIFICADA ✅" if es_vip else "ID NO VÁLIDO / GUEST ⚠️"
 
         # 5. Embed Final
         embed = discord.Embed(title=titulo_final, color=color_final, timestamp=discord.utils.utcnow())
-        
         if es_vip:
             embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
 
@@ -108,8 +105,22 @@ async def handle_ticket():
 
         async def send_msg():
             await bot.wait_until_ready()
-            content = f"👑 **¡ALERTA VIP!** <@{discord_id_web}>" if es_vip and discord_id_web else None
-            await canal.send(content=content, embed=embed)
+            
+            # Buscamos si el usuario ya tiene un canal ACTIVO (no archivado)
+            # El nombre del canal se genera igual que en on_member_join
+            nombre_canal_busqueda = f"{nombre_final.lower()}-{nombre_usuario.lower()}".replace(" ", "-")
+            
+            canal_existente = discord.utils.get(bot.get_all_channels(), name=nombre_canal_busqueda)
+            
+            # Solo usamos el canal si existe Y no pertenece a la categoría de cerrados
+            if canal_existente and canal_existente.category_id != ID_CAT_ARCHIVADOS:
+                await canal_existente.send(content=f"🔔 **Nueva actualización de ticket:**", embed=embed)
+            else:
+                # Si está archivado o no existe, va al canal de staff para que se atienda/cree uno nuevo
+                canal_staff_id = int(id_canal_vip) if es_vip and id_canal_vip else int(id_canal_guest)
+                canal_staff = bot.get_channel(canal_staff_id) or await bot.fetch_channel(canal_staff_id)
+                content = f"👑 **¡ALERTA VIP!** <@{discord_id_web}>" if es_vip and discord_id_web else None
+                await canal_staff.send(content=content, embed=embed)
 
         bot.loop.create_task(send_msg())
         return {"status": "success", "message": "Ticket enviado"}, 200
@@ -117,46 +128,6 @@ async def handle_ticket():
     except Exception as e:
         print(f"⚠️ Error: {e}")
         return {"status": "error", "message": str(e)}, 500
-
-# ----------------------------
-# Función de Servicios de Streaming (Intacta)
-# ----------------------------
-async def services():
-    channel = bot.get_channel(config.channel_id)
-    if channel is None:
-        await asyncio.sleep(5)
-        channel = bot.get_channel(config.channel_id)
-    if channel is None: return
-
-    try:
-        await channel.purge() 
-        with open('json/streaming_services.json', 'r') as file:
-            streaming_services = json.load(file)["streaming_services"]
-
-        for service in streaming_services:
-            embed = discord.Embed(
-                title=service["name"],
-                description=service["description"],
-                color=discord.Color.blue()
-            )
-            embed.set_thumbnail(url=service["image"])
-
-            for plan in service["plans"]:
-                plan_details = ""
-                if plan["price_per_month"] != 0:
-                    plan_details += f"**Precio**: {plan['price_per_month']}\n"
-                if plan.get('resolution') and plan['resolution'] != 'N/A':
-                    plan_details += f"**Resolución**: {plan['resolution']}\n"
-                if plan.get('ads') and plan['ads'] != "No Ads":
-                    plan_details += f"**Anuncios**: {plan['ads']}\n"
-
-                embed.add_field(name=plan["name"], value=plan_details, inline=True)
-
-            message = await channel.send(embed=embed)
-            await message.add_reaction('✅')
-        print('✅ Servicios de streaming actualizados.')
-    except Exception as e:
-        print(f'❌ Error en services: {e}')
 
 # ----------------------------
 # Servidor Web & Bot Setup
