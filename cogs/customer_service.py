@@ -4,6 +4,9 @@ import os
 import json
 import requests
 import asyncio
+import secrets
+import string
+from datetime import datetime, timedelta
 
 class CustomerService(commands.Cog):
     def __init__(self, bot):
@@ -11,9 +14,10 @@ class CustomerService(commands.Cog):
         self.gist_id = os.getenv('GIST_ID')
         self.github_token = os.getenv('GITHUB_TOKEN')
         self.id_rol_dev = int(os.getenv('ID_ROL_DEV', 0))
+        print("🛠️ Cog CustomerService cargado correctamente")
 
-    # --- COMANDO DE ALTA (REVISADO Y COMPLETO) ---
-  @commands.has_role(int(os.getenv('ID_ROL_DEV', 0)))
+    # --- COMANDO DE ALTA ---
+    @commands.has_role(int(os.getenv('ID_ROL_DEV', 0)))
     @commands.command(name="alta")
     async def alta(self, ctx, empresa: str, miembro: discord.Member):
         """Genera ID, vincula Discord y añade 30 días de suscripción."""
@@ -22,13 +26,15 @@ class CustomerService(commands.Cog):
         # 1. GENERAR CÓDIGO BLITZ-XXXX-XXXX
         def generar_codigo():
             chars = string.ascii_uppercase + string.digits
-            return f"BLITZ-{''.join(secrets.choice(chars) for _ in range(4))}-{''.join(secrets.choice(chars) for _ in range(4))}"
+            p1 = ''.join(secrets.choice(chars) for _ in range(4))
+            p2 = ''.join(secrets.choice(chars) for _ in range(4))
+            return f"BLITZ-{p1}-{p2}"
 
         id_soporte = generar_codigo()
         
         # 2. CALCULAR FECHAS
         fecha_inicio = datetime.now()
-        fecha_fin = fecha_inicio + timedelta(days=30) # Aquí puedes cambiar los días
+        fecha_fin = fecha_inicio + timedelta(days=30)
         formato_fecha = "%d/%m/%Y"
 
         await ctx.send(f"🛡️ Blindando acceso para **{empresa}**...")
@@ -38,9 +44,10 @@ class CustomerService(commands.Cog):
             r = requests.get(f"https://api.github.com/gists/{self.gist_id}", headers=headers)
             gist_data = r.json()
 
-            # 4. Actualizar clientes.json con FECHA DE EXPIRACIÓN
+            # 4. Actualizar clientes.json
             clientes = json.loads(gist_data['files']['clientes.json']['content'])
-            while id_soporte in clientes: id_soporte = generar_codigo()
+            while id_soporte in clientes: 
+                id_soporte = generar_codigo()
             
             clientes[id_soporte] = {
                 "empresa": empresa,
@@ -64,13 +71,13 @@ class CustomerService(commands.Cog):
             }
             requests.patch(f"https://api.github.com/gists/{self.gist_id}", headers=headers, json=payload)
 
-            # 7. Embed de éxito detallado
+            # 7. Embed de éxito
             embed = discord.Embed(title="🚀 Activación de Cliente", color=discord.Color.gold())
             embed.add_field(name="🏢 Empresa", value=empresa, inline=False)
             embed.add_field(name="🔑 ID Soporte", value=f"`{id_soporte}`", inline=False)
             embed.add_field(name="👤 Usuario", value=miembro.mention, inline=True)
             embed.add_field(name="📅 Vence el", value=fecha_fin.strftime(formato_fecha), inline=True)
-            embed.set_footer(text="Blitz Hub • Sistema de Gestión de Licencias")
+            embed.set_footer(text="Blitz Hub • Gestión de Licencias")
             
             await ctx.send(embed=embed)
             
@@ -87,67 +94,50 @@ class CustomerService(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Error en el proceso: {e}")
 
-   # --- COMANDO CERRAR (OPTIMIZADO) ---
+    # --- COMANDO CERRAR ---
     @commands.command(name="cerrar", aliases=["close"])
     async def cerrar_ticket(self, ctx):
         """Cierra el ticket, avisa al usuario y archiva el canal."""
-        
-        # 1. Identificar al usuario (Dueño del ticket)
         usuario_ticket = None
         
-        # Método A: Buscar en los permisos del canal (el usuario que no es staff ni bot)
         for target, overwrite in ctx.channel.overwrites.items():
             if isinstance(target, discord.Member) and not target.bot:
-                # Si el usuario tiene permiso de ver el canal y no tiene el rol de Staff/Dev
                 rol_dev = ctx.guild.get_role(self.id_rol_dev)
                 if target != ctx.guild.owner and target != rol_dev:
                     usuario_ticket = target
                     break
 
-        # Método B: Por el nombre del canal (si el A falla)
         if not usuario_ticket:
             parts = ctx.channel.name.split('-')
             if len(parts) >= 2:
-                # Buscamos un miembro cuyo nombre coincida con la segunda parte del canal
                 usuario_ticket = discord.utils.get(ctx.guild.members, name=parts[1])
 
-        # 2. Notificar al usuario (si lo encontramos)
         if usuario_ticket:
             embed_dm = discord.Embed(
                 title="🎫 Ticket Finalizado",
-                description=f"Tu consulta en **{ctx.guild.name}** ha sido marcada como resuelta por nuestro equipo.",
+                description=f"Tu consulta en **{ctx.guild.name}** ha sido marcada como resuelta.",
                 color=discord.Color.green(),
                 timestamp=discord.utils.utcnow()
             )
-            embed_dm.set_footer(text="Gracias por contactar con Blitz Hub")
             try:
                 await usuario_ticket.send(embed=embed_dm)
             except:
-                await ctx.send("⚠️ No pude enviar el aviso por privado al usuario (DMs cerrados).")
-        else:
-            await ctx.send("ℹ️ No identifiqué al dueño original, procediendo al cierre igualmente.")
+                pass
 
-        # 3. Mover a categoría de archivos y renombrar
         try:
-            # Buscamos la categoría por nombre (asegúrate de que sea EXACTO en Discord)
             cat_archivados = discord.utils.get(ctx.guild.categories, name="ARCHIVADOS")
-            
-            nuevo_nombre = f"✅-{ctx.channel.name}"[:100] # Discord limita a 100 caracteres
+            nuevo_nombre = f"✅-{ctx.channel.name}"[:100]
             
             if cat_archivados:
-                # Quitar permisos al usuario pero mantenerlos para el staff
                 if usuario_ticket:
                     await ctx.channel.set_permissions(usuario_ticket, overwrite=None)
-                
                 await ctx.channel.edit(name=nuevo_nombre, category=cat_archivados)
                 await ctx.send(f"✅ Ticket archivado en **{cat_archivados.name}**.")
             else:
-                # Si no existe la categoría, solo lo renombramos
                 await ctx.channel.edit(name=nuevo_nombre)
-                await ctx.send("⚠️ Categoría 'ARCHIVADOS' no encontrada. Canal renombrado pero no movido.")
-                
+                await ctx.send("⚠️ Categoría 'ARCHIVADOS' no encontrada.")
         except Exception as e:
-            await ctx.send(f"❌ Error al intentar cerrar el canal: {e}")
+            await ctx.send(f"❌ Error al cerrar: {e}")
 
 async def setup(bot):
     await bot.add_cog(CustomerService(bot))
