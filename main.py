@@ -28,16 +28,34 @@ async def handle_ticket():
     try:
         data = await request.get_json()
         
-        # 1. Identificación de Prioridad
-        # Limpiamos el ID por si el usuario pone espacios o minúsculas
-        cliente_id_raw = data.get('cliente_id', "GUEST")
-        cliente_id = cliente_id_raw.strip().upper() if cliente_id_raw else "GUEST"
-        es_vip = cliente_id != "GUEST"
+        # --- 1. VALIDACIÓN CONTRA GIST (SIN BORRAR NADA) ---
+        cliente_id_raw = data.get('cliente_id', "").strip().upper()
+        es_vip = False
         
-        # 2. Selección de Canal (VIP vs GUEST)
+        # Obtenemos los tokens de tus variables de entorno de Render
+        gist_id = os.getenv('GIST_ID')
+        github_token = os.getenv('GITHUB_TOKEN')
+        
+        if gist_id and github_token and cliente_id_raw:
+            try:
+                headers = {"Authorization": f"token {github_token}"}
+                response_gist = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
+                
+                if response_gist.status_code == 200:
+                    gist_data = response_gist.json()
+                    # Buscamos el ID en todos los archivos del Gist
+                    for file in gist_data['files'].values():
+                        if cliente_id_raw in file['content'].upper():
+                            es_vip = True
+                            break
+            except Exception as ge:
+                print(f"⚠️ Error validando en Gist: {ge}")
+
+        # --- 2. SELECCIÓN DE CANAL ---
         id_canal_guest = os.getenv('ID_CANAL_SOPORTE')
         id_canal_vip = os.getenv('ID_CANAL_VIP')
         
+        # Si es VIP verificado va al canal VIP, si no, al de Soporte
         canal_id_final = int(id_canal_vip) if es_vip and id_canal_vip else int(id_canal_guest)
         canal = bot.get_channel(canal_id_final)
         
@@ -47,7 +65,7 @@ async def handle_ticket():
             except:
                 return {"status": "error", "message": "Canal de destino no encontrado"}, 500
 
-        # 3. Estética del Embed según rango
+        # --- 3. ESTÉTICA DEL EMBED ---
         color_final = discord.Color.gold() if es_vip else discord.Color.blue()
         titulo_final = "👑 NUEVA INCIDENCIA VIP" if es_vip else "👤 CONSULTA GUEST"
 
@@ -59,17 +77,19 @@ async def handle_ticket():
         
         if es_vip:
             embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
+            embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/6941/6941697.png")
         
         embed.add_field(name="👤 Cliente", value=data.get('nombre', 'Desconocido'), inline=True)
         embed.add_field(name="📧 Email", value=data.get('email', 'N/A'), inline=True)
-        embed.add_field(name="🔑 ID Contrato", value=f"`{cliente_id}`", inline=True)
+        embed.add_field(name="🔑 ID Contrato", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
         embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
-        embed.set_footer(text=f"Blitz Hub System • {'PRIORIDAD ALTA' if es_vip else 'PRIORIDAD NORMAL'}")
+        
+        status_footer = "VERIFICADO ✅" if es_vip else "INVITADO 👤"
+        embed.set_footer(text=f"Blitz Hub System • {status_footer}")
 
-        # 4. Envío seguro entre hilos
+        # --- 4. ENVÍO SEGURO (CORRECCIÓN DE CONEXIÓN) ---
         async def send_msg():
             await bot.wait_until_ready()
-            # Mención opcional para VIPs fuera del embed para asegurar notificación
             content = "👑 **NUEVA SOLICITUD VIP RECIBIDA**" if es_vip else None
             await canal.send(content=content, embed=embed)
 
@@ -110,6 +130,7 @@ bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 async def load_extensions():
     if not os.path.exists("./cogs"): return
     for filename in os.listdir("./cogs"):
+        # Mantenemos tu lógica de exclusión original
         if filename.endswith(".py") and filename not in ["__init__.py", "webserver.py"]:
             try:
                 await bot.load_extension(f"cogs.{filename[:-3]}")
@@ -130,7 +151,7 @@ async def self_ping():
     url = "https://pollitos-discord.onrender.com/"
     while True:
         try:
-            # Petición asíncrona simple
+            # Petición asíncrona simple para el autoping
             await asyncio.get_event_loop().run_in_executor(None, requests.get, url)
             print("🔔 Autoping exitoso.")
         except:
@@ -146,7 +167,7 @@ async def main():
         print("❌ ERROR: No hay DISCORD_TOKEN.")
         return
 
-    # 1. API en hilo separado
+    # 1. API en hilo separado (Daemon para que cierre con el bot)
     t = Thread(target=run_web, daemon=True)
     t.start()
 
