@@ -87,45 +87,67 @@ class CustomerService(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Error en el proceso: {e}")
 
-    # --- COMANDO CERRAR (CON IDENTIFICACIÓN MEJORADA) ---
+   # --- COMANDO CERRAR (OPTIMIZADO) ---
     @commands.command(name="cerrar", aliases=["close"])
     async def cerrar_ticket(self, ctx):
-        """Cierra el ticket y envía un mensaje al usuario identificado."""
+        """Cierra el ticket, avisa al usuario y archiva el canal."""
         
-        # 1. Intentar identificar al usuario propietario
+        # 1. Identificar al usuario (Dueño del ticket)
         usuario_ticket = None
         
-        # A. Por permisos del canal
+        # Método A: Buscar en los permisos del canal (el usuario que no es staff ni bot)
         for target, overwrite in ctx.channel.overwrites.items():
             if isinstance(target, discord.Member) and not target.bot:
-                if target.id != ctx.author.id or len(ctx.channel.overwrites) <= 3: 
+                # Si el usuario tiene permiso de ver el canal y no tiene el rol de Staff/Dev
+                rol_dev = ctx.guild.get_role(self.id_rol_dev)
+                if target != ctx.guild.owner and target != rol_dev:
                     usuario_ticket = target
                     break
-        
-        # B. Por nombre del canal (backup)
+
+        # Método B: Por el nombre del canal (si el A falla)
         if not usuario_ticket:
             parts = ctx.channel.name.split('-')
             if len(parts) >= 2:
+                # Buscamos un miembro cuyo nombre coincida con la segunda parte del canal
                 usuario_ticket = discord.utils.get(ctx.guild.members, name=parts[1])
 
-        if not usuario_ticket:
-            return await ctx.send("❌ No he podido identificar al dueño del ticket para avisarle.")
-
-        # 2. Notificar al usuario
-        embed_dm = discord.Embed(
-            title="🎫 Ticket Finalizado",
-            description=f"Tu consulta en **{ctx.guild.name}** ha sido marcada como resuelta.",
-            color=discord.Color.green()
-        )
-        try:
-            await usuario_ticket.send(embed=embed_dm)
-        except:
-            pass
+        # 2. Notificar al usuario (si lo encontramos)
+        if usuario_ticket:
+            embed_dm = discord.Embed(
+                title="🎫 Ticket Finalizado",
+                description=f"Tu consulta en **{ctx.guild.name}** ha sido marcada como resuelta por nuestro equipo.",
+                color=discord.Color.green(),
+                timestamp=discord.utils.utcnow()
+            )
+            embed_dm.set_footer(text="Gracias por contactar con Blitz Hub")
+            try:
+                await usuario_ticket.send(embed=embed_dm)
+            except:
+                await ctx.send("⚠️ No pude enviar el aviso por privado al usuario (DMs cerrados).")
+        else:
+            await ctx.send("ℹ️ No identifiqué al dueño original, procediendo al cierre igualmente.")
 
         # 3. Mover a categoría de archivos y renombrar
-        cat_archivados = discord.utils.get(ctx.guild.categories, name="ARCHIVADOS")
-        await ctx.channel.edit(name=f"fixed-{ctx.channel.name}", category=cat_archivados)
-        await ctx.send("✅ Ticket cerrado y archivado.")
+        try:
+            # Buscamos la categoría por nombre (asegúrate de que sea EXACTO en Discord)
+            cat_archivados = discord.utils.get(ctx.guild.categories, name="ARCHIVADOS")
+            
+            nuevo_nombre = f"✅-{ctx.channel.name}"[:100] # Discord limita a 100 caracteres
+            
+            if cat_archivados:
+                # Quitar permisos al usuario pero mantenerlos para el staff
+                if usuario_ticket:
+                    await ctx.channel.set_permissions(usuario_ticket, overwrite=None)
+                
+                await ctx.channel.edit(name=nuevo_nombre, category=cat_archivados)
+                await ctx.send(f"✅ Ticket archivado en **{cat_archivados.name}**.")
+            else:
+                # Si no existe la categoría, solo lo renombramos
+                await ctx.channel.edit(name=nuevo_nombre)
+                await ctx.send("⚠️ Categoría 'ARCHIVADOS' no encontrada. Canal renombrado pero no movido.")
+                
+        except Exception as e:
+            await ctx.send(f"❌ Error al intentar cerrar el canal: {e}")
 
 async def setup(bot):
     await bot.add_cog(CustomerService(bot))
