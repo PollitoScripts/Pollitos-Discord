@@ -32,6 +32,7 @@ async def handle_ticket():
         nombre_usuario = data.get('nombre', 'Desconocido')
         # Si no pone empresa, por defecto es PARTICULAR
         nombre_empresa = data.get('empresa', '').strip().upper() or "PARTICULAR"
+        email_web = data.get('email', 'No proporcionado')
         
         es_vip = False
         gist_id = os.getenv('GIST_ID')
@@ -82,6 +83,7 @@ async def handle_ticket():
 
         embed.add_field(name="🏢 Empresa/Origen", value=f"**{nombre_empresa}**", inline=False)
         embed.add_field(name="👤 Empleado", value=nombre_usuario, inline=True)
+        embed.add_field(name="📧 Correo Contacto", value=f"`{email_web}`", inline=True) # <--- USA EL DE LA WEB
         embed.add_field(name="🔑 ID Contrato", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
         embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
         embed.set_footer(text=f"Blitz Hub System • {status_footer}")
