@@ -53,9 +53,10 @@ async def handle_ticket():
                     if cliente_id_raw in db:
                         es_vip = True
                         nombre_final = db[cliente_id_raw].get('empresa', nombre_final)
-            except: pass
+            except: 
+                pass
 
-       async def process_discord():
+        async def process_discord():
             await bot.wait_until_ready()
             
             # 1. Selección del servidor por ID
@@ -67,7 +68,7 @@ async def handle_ticket():
             member = guild.get_member(int(discord_id_web)) if discord_id_web.isdigit() else None
             
             # 2. Preparar IDs de canales de registro (Staff)
-            id_canal_staff = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE'))
+            id_canal_staff = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE', 0))
             canal_staff = bot.get_channel(id_canal_staff)
 
             # 3. Preparar el Embed de Registro
@@ -94,7 +95,7 @@ async def handle_ticket():
                 suffix = datetime.now().strftime("%H%M")
                 nombre_canal_privado = f"{nombre_final[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
                 
-                cat_id_activa = int(os.getenv('CAT_VIP_ID')) if es_vip else int(os.getenv('CAT_ESTANDAR_ID'))
+                cat_id_activa = CAT_VIP if es_vip else CAT_ESTANDAR
                 category = guild.get_channel(cat_id_activa)
 
                 overwrites = {
@@ -114,13 +115,13 @@ async def handle_ticket():
                 if es_vip and rol_dev:
                     await nuevo_canal.send(f"{rol_dev.mention} 🚨 **ATENCIÓN: Ticket VIP iniciado.**")
             else:
-                # Si no está en el servidor, ya enviamos el log arriba, pero podemos dejar un aviso extra
                 print(f"ℹ️ El usuario {nombre_usuario} no está en el servidor, solo se envió log a staff.")
 
         bot.loop.create_task(process_discord())
         return {"status": "success"}, 200
 
     except Exception as e:
+        print(f"Error en handle_ticket: {e}")
         return {"status": "error", "message": str(e)}, 500
 
 # ----------------------------
@@ -156,7 +157,6 @@ async def on_ready():
 
 @bot.command()
 async def servicios(ctx):
-    # Nota: Asegúrate de tener la función services() definida o importada si usas este comando
     await ctx.send("✅ Lista de servicios actualizada.")
 
 async def self_ping():
@@ -165,7 +165,8 @@ async def self_ping():
     while True:
         try:
             await asyncio.get_event_loop().run_in_executor(None, requests.get, url)
-        except: pass
+        except: 
+            pass
         await asyncio.sleep(600)
 
 async def main():
