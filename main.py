@@ -55,47 +55,67 @@ async def handle_ticket():
                         nombre_final = db[cliente_id_raw].get('empresa', nombre_final)
             except: pass
 
-        async def process_discord():
+       async def process_discord():
             await bot.wait_until_ready()
             
-            # CAMBIO CRÍTICO: Selección por ID de servidor específica
+            # 1. Selección del servidor por ID
             guild = bot.get_guild(ID_SERVIDOR_BLITZ)
-            
             if not guild:
                 print(f"❌ Error: No se encontró el servidor con ID {ID_SERVIDOR_BLITZ}")
                 return
 
             member = guild.get_member(int(discord_id_web)) if discord_id_web.isdigit() else None
             
-            # Siempre creamos un canal nuevo con timestamp para evitar colisiones
-            from datetime import datetime
-            suffix = datetime.now().strftime("%H%M")
-            nombre_canal = f"{nombre_final[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
-            
-            cat_id = int(os.getenv('CAT_VIP_ID')) if es_vip else int(os.getenv('CAT_ESTANDAR_ID'))
-            
-            embed = discord.Embed(title=f"🎫 Ticket: {nombre_final}", color=discord.Color.gold() if es_vip else discord.Color.blue())
-            embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw or 'GUEST'}`")
-            embed.add_field(name="📝 Problema", value=problema, inline=False)
+            # 2. Preparar IDs de canales de registro (Staff)
+            id_canal_staff = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE'))
+            canal_staff = bot.get_channel(id_canal_staff)
 
+            # 3. Preparar el Embed de Registro
+            color_embed = discord.Color.gold() if es_vip else discord.Color.blue()
+            embed = discord.Embed(title=f"🎫 Ticket: {nombre_final}", color=color_embed, timestamp=discord.utils.utcnow())
+            if es_vip:
+                embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
+            
+            embed.add_field(name="🏢 Empresa", value=f"**{nombre_final}**", inline=False)
+            embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
+            embed.add_field(name="🆔 Discord ID", value=f"<@{discord_id_web}>" if discord_id_web else "`No provisto`", inline=True)
+            embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw or 'GUEST'}`", inline=True)
+            embed.add_field(name="📝 Problema", value=problema, inline=False)
+            embed.set_footer(text=f"Blitz Hub System • {'EMPRESA VERIFICADA ✅' if es_vip else 'GUEST ⚠️'}")
+
+            # --- ACCIÓN A: ENVIAR SIEMPRE AL CANAL DE REGISTRO (Staff) ---
+            if canal_staff:
+                alerta = f"👑 **¡ALERTA VIP!** {nombre_final}" if es_vip else None
+                await canal_staff.send(content=alerta, embed=embed)
+
+            # --- ACCIÓN B: CREAR CANAL PRIVADO SI EL USUARIO ESTÁ EN EL SERVER ---
             if member:
-                category = guild.get_channel(cat_id)
+                from datetime import datetime
+                suffix = datetime.now().strftime("%H%M")
+                nombre_canal_privado = f"{nombre_final[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
+                
+                cat_id_activa = int(os.getenv('CAT_VIP_ID')) if es_vip else int(os.getenv('CAT_ESTANDAR_ID'))
+                category = guild.get_channel(cat_id_activa)
+
                 overwrites = {
                     guild.default_role: discord.PermissionOverwrite(view_channel=False),
                     member: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
                     guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
                 }
-                rol_dev = guild.get_role(int(os.getenv('ID_ROL_DEV')))
-                if rol_dev: overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                rol_dev = guild.get_role(ID_ROL_DEV)
+                if rol_dev: 
+                    overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
-                channel = await guild.create_text_channel(name=nombre_canal, category=category, overwrites=overwrites)
-                await channel.send(content=f"{member.mention} Nuevo ticket abierto.", embed=embed)
+                # Crear el canal en la categoría correspondiente
+                nuevo_canal = await guild.create_text_channel(name=nombre_canal_privado, category=category, overwrites=overwrites)
+                
+                # Mensaje de bienvenida en el nuevo canal privado
+                await nuevo_canal.send(content=f"Hola {member.mention}, hemos recibido tu incidencia. Un desarrollador te atenderá aquí mismo.", embed=embed)
+                if es_vip and rol_dev:
+                    await nuevo_canal.send(f"{rol_dev.mention} 🚨 **ATENCIÓN: Ticket VIP iniciado.**")
             else:
-                # Si el usuario no está en el server, avisamos por el canal de staff
-                staff_ch_id = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE'))
-                staff_ch = bot.get_channel(staff_ch_id)
-                if staff_ch:
-                    await staff_ch.send(content=f"⚠️ Usuario externo: <@{discord_id_web}>", embed=embed)
+                # Si no está en el servidor, ya enviamos el log arriba, pero podemos dejar un aviso extra
+                print(f"ℹ️ El usuario {nombre_usuario} no está en el servidor, solo se envió log a staff.")
 
         bot.loop.create_task(process_discord())
         return {"status": "success"}, 200
