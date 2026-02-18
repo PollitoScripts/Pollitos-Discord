@@ -17,7 +17,7 @@ from hypercorn.config import Config
 # ----------------------------
 app = Quart(__name__)
 # Permitimos CORS para que tu GitHub Pages pueda hablar con Render
-app = cors(app, allow_origin="*") 
+app = cors(app, allow_origin="https://pollitoscripts.github.io")
 
 @app.route('/')
 async def index():
