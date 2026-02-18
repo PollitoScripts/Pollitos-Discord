@@ -11,7 +11,8 @@ from threading import Thread
 # Nuevas importaciones para la API de tickets
 from quart import Quart, request
 from quart_cors import cors
-
+from hypercorn.asyncio import serve
+from hypercorn.config import Config
 # ----------------------------
 # Configuración de la API (Tickets)
 # ----------------------------
@@ -48,12 +49,19 @@ async def handle_ticket():
 # ----------------------------
 # Hilo del Servidor Web
 # ----------------------------
+# --- MODIFICA TU FUNCIÓN run_web ---
 def run_web():
-    # Iniciamos Quart en el puerto que Render asigna
     port = int(os.getenv("PORT", 8080))
-    # Quart requiere su propio loop o ejecutarse de forma específica
-    # Usamos app.run para el hilo separado
-    app.run(host='0.0.0.0', port=port)
+    config = Config()
+    config.bind = [f"0.0.0.0:{port}"]
+    
+    # Usamos un nuevo bucle de eventos para este hilo
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    print(f"🌐 API de Tickets activa en puerto: {port}")
+    # 'use_reloader=False' y evitar handlers de señales es clave
+    loop.run_until_complete(serve(app, config))
 
 # ----------------------------
 # Configuración del bot
