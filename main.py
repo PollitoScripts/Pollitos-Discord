@@ -29,26 +29,27 @@ async def handle_ticket():
         data = await request.get_json()
         
         # 1. Identificación de Prioridad
-        cliente_id = data.get('cliente_id', "GUEST")
-        es_vip = cliente_id and cliente_id.strip().upper() != "GUEST"
+        # Limpiamos el ID por si el usuario pone espacios o minúsculas
+        cliente_id_raw = data.get('cliente_id', "GUEST")
+        cliente_id = cliente_id_raw.strip().upper() if cliente_id_raw else "GUEST"
+        es_vip = cliente_id != "GUEST"
         
-        # 2. Selección de Canal Dinámico
+        # 2. Selección de Canal (VIP vs GUEST)
         id_canal_guest = os.getenv('ID_CANAL_SOPORTE')
-        id_canal_vip = os.getenv('ID_CANAL_VIP') # Variable nueva en Render
+        id_canal_vip = os.getenv('ID_CANAL_VIP')
         
-        # Si es VIP y tenemos el ID del canal VIP, usamos ese. Si no, al de siempre.
         canal_id_final = int(id_canal_vip) if es_vip and id_canal_vip else int(id_canal_guest)
-        
         canal = bot.get_channel(canal_id_final)
+        
         if not canal:
             try:
                 canal = await bot.fetch_channel(canal_id_final)
             except:
                 return {"status": "error", "message": "Canal de destino no encontrado"}, 500
 
-        # 3. Configuración del Embed (Colores y Títulos)
+        # 3. Estética del Embed según rango
         color_final = discord.Color.gold() if es_vip else discord.Color.blue()
-        titulo_final = "💎 NUEVO TICKET PRIORITARIO" if es_vip else "👤 NUEVO TICKET GUEST"
+        titulo_final = "👑 NUEVA INCIDENCIA VIP" if es_vip else "👤 CONSULTA GUEST"
 
         embed = discord.Embed(
             title=titulo_final,
@@ -58,23 +59,24 @@ async def handle_ticket():
         
         if es_vip:
             embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
-            
+        
         embed.add_field(name="👤 Cliente", value=data.get('nombre', 'Desconocido'), inline=True)
         embed.add_field(name="📧 Email", value=data.get('email', 'N/A'), inline=True)
         embed.add_field(name="🔑 ID Contrato", value=f"`{cliente_id}`", inline=True)
         embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
-        embed.set_footer(text="Blitz Hub Internal Management")
+        embed.set_footer(text=f"Blitz Hub System • {'PRIORIDAD ALTA' if es_vip else 'PRIORIDAD NORMAL'}")
 
-        # 4. Envío seguro según canal
+        # 4. Envío seguro entre hilos
         async def send_msg():
             await bot.wait_until_ready()
-            # En el canal VIP podemos añadir una mención opcional para que pite el móvil
-            content = "⚠️ @here" if es_vip else None
+            # Mención opcional para VIPs fuera del embed para asegurar notificación
+            content = "👑 **NUEVA SOLICITUD VIP RECIBIDA**" if es_vip else None
             await canal.send(content=content, embed=embed)
 
         bot.loop.create_task(send_msg())
         
-        return {"status": "success", "message": f"Ticket enviado a canal {'VIP' if es_vip else 'General'}"}, 200
+        print(f"✅ Ticket de {data.get('nombre')} enviado a {'CANAL VIP 👑' if es_vip else 'Soporte General'}")
+        return {"status": "success", "message": "Ticket procesado correctamente"}, 200
 
     except Exception as e:
         print(f"⚠️ Error en API: {e}")
