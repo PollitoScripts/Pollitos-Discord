@@ -87,5 +87,51 @@ class CustomerService(commands.Cog):
         except Exception as e:
             print(f"❌ Error en automatización: {e}")
 
+@commands.command(name="cerrar", aliases=["cerrrar", "finish"])
+    @commands.has_role(int(os.getenv('ID_ROL_DEV', 0)))
+    async def cerrar_ticket(self, ctx):
+        """Mueve el canal a la categoría de archivados y quita permisos al usuario"""
+        
+        ID_CAT_ARCHIVADOS = 1473689333964738633
+        categoria_archivo = ctx.guild.get_channel(ID_CAT_ARCHIVADOS)
+
+        if not categoria_archivo:
+            return await ctx.send("❌ Error: No se encontró la categoría de archivados.")
+
+        # 1. Identificar al usuario del ticket (basado en los permisos actuales)
+        # Buscamos al miembro que no sea el bot ni tú (Dev)
+        usuario_ticket = None
+        for target, overwrite in ctx.channel.overwrites.items():
+            if isinstance(target, discord.Member) and not target.bot:
+                usuario_ticket = target
+                break
+
+        await ctx.send("⏳ Cerrando ticket y archivando canal...")
+
+        # 2. Modificar permisos: Quitar acceso al usuario, mantenerlo para ti (Dev)
+        new_overwrites = {
+            ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            ctx.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        }
+        
+        rol_dev = ctx.guild.get_role(self.ID_ROL_DEV)
+        if rol_dev:
+            new_overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+
+        # Aplicamos el cambio: el usuario ya no verá el canal
+        await ctx.channel.edit(category=categoria_archivo, overwrites=new_overwrites)
+
+        # 3. Cambiar el nombre para indicar que está cerrado (opcional pero recomendado)
+        nuevo_nombre = f"z-{ctx.channel.name}"
+        await ctx.channel.edit(name=nuevo_nombre)
+
+        # 4. Mensaje final de log
+        embed_cierre = discord.Embed(
+            title="Ticket Cerrado",
+            description=f"Este ticket ha sido archivado por {ctx.author.mention}.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed_cierre)
+
 async def setup(bot):
     await bot.add_cog(CustomerService(bot))
