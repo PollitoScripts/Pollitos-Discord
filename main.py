@@ -12,6 +12,11 @@ from quart_cors import cors
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
 
+# Tus IDs de categorías (Cópialos de Discord como te enseñé)
+CAT_VIP = 1473688902442287105  # Categoría SOPORTE CRÍTICO
+CAT_ESTANDAR = 1473689289434075197  # Categoría SOPORTE ESTÁNDAR
+ID_ROL_DEV = 1473366087390331094  # Tu ID de rol de Administrador/Dev
+
 # ----------------------------
 # Configuración de la API (Tickets & Empresa)
 # ----------------------------
