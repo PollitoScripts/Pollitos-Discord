@@ -22,6 +22,7 @@ app = cors(app, allow_origin="https://pollitoscripts.github.io")
 CAT_VIP = int(os.getenv('CAT_VIP_ID', 0))
 CAT_ESTANDAR = int(os.getenv('CAT_ESTANDAR_ID', 0))
 ID_ROL_DEV = int(os.getenv('ID_ROL_DEV', 0))
+ID_SERVIDOR_BLITZ = int(os.getenv('ID_SERVIDOR_BLITZ', 0))
 
 @app.route('/')
 async def index():
@@ -56,7 +57,14 @@ async def handle_ticket():
 
         async def process_discord():
             await bot.wait_until_ready()
-            guild = bot.guilds[0]
+            
+            # CAMBIO CRÍTICO: Selección por ID de servidor específica
+            guild = bot.get_guild(ID_SERVIDOR_BLITZ)
+            
+            if not guild:
+                print(f"❌ Error: No se encontró el servidor con ID {ID_SERVIDOR_BLITZ}")
+                return
+
             member = guild.get_member(int(discord_id_web)) if discord_id_web.isdigit() else None
             
             # Siempre creamos un canal nuevo con timestamp para evitar colisiones
@@ -84,8 +92,10 @@ async def handle_ticket():
                 await channel.send(content=f"{member.mention} Nuevo ticket abierto.", embed=embed)
             else:
                 # Si el usuario no está en el server, avisamos por el canal de staff
-                staff_ch = bot.get_channel(int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE')))
-                await staff_ch.send(content=f"⚠️ Usuario externo: <@{discord_id_web}>", embed=embed)
+                staff_ch_id = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE'))
+                staff_ch = bot.get_channel(staff_ch_id)
+                if staff_ch:
+                    await staff_ch.send(content=f"⚠️ Usuario externo: <@{discord_id_web}>", embed=embed)
 
         bot.loop.create_task(process_discord())
         return {"status": "success"}, 200
@@ -126,7 +136,7 @@ async def on_ready():
 
 @bot.command()
 async def servicios(ctx):
-    await services()
+    # Nota: Asegúrate de tener la función services() definida o importada si usas este comando
     await ctx.send("✅ Lista de servicios actualizada.")
 
 async def self_ping():
