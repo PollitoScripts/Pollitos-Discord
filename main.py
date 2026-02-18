@@ -32,101 +32,80 @@ async def handle_ticket():
     try:
         data = await request.get_json()
         
-        # 1. Recogida de datos limpia
+        # 1. Recogida de datos
         cliente_id_raw = data.get('cliente_id', "").strip().upper()
         nombre_usuario = data.get('nombre', 'Desconocido')
-        email_usuario = data.get('email', '').strip()
         nombre_empresa_web = data.get('empresa', '').strip().upper() 
         discord_id_web = data.get('discord_id', '').strip()
+        problema = data.get('problema', 'Sin descripción')
         
         es_vip = False
         gist_id = os.getenv('GIST_ID')
         github_token = os.getenv('GITHUB_TOKEN')
         
-        # 2. Definir nombre para mostrar
-        if nombre_empresa_web and nombre_empresa_web != "N/A":
-            nombre_final = nombre_empresa_web
-        else:
-            nombre_final = f"{nombre_usuario} ({email_usuario if email_usuario else 'Sin Email'})"
-
-        # 3. Gestión de Gist (Sincronización de Clientes y Mapeo Discord)
+        # 2. Lógica de Gist y VIP
         if gist_id and github_token:
             try:
                 headers = {"Authorization": f"token {github_token}"}
                 r = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
-                
                 if r.status_code == 200:
                     gist_content = r.json()
-                    
-                    # --- A) Verificar si es VIP ---
                     db = json.loads(gist_content['files']['clientes.json']['content'])
                     if cliente_id_raw in db:
                         es_vip = True
-                        if not nombre_empresa_web or nombre_empresa_web == "N/A":
-                            nombre_final = db[cliente_id_raw].get('empresa', 'EMPRESA VIP')
+                        nombre_final = db[cliente_id_raw].get('empresa', nombre_empresa_web)
+                    else:
+                        nombre_final = nombre_empresa_web if nombre_empresa_web else "GUEST"
+            except: nombre_final = nombre_empresa_web
 
-                    # --- B) MAPEADO AUTOMÁTICO SIEMPRE ---
-                    if discord_id_web and 'mapa_discord.json' in gist_content['files']:
-                        mapa = json.loads(gist_content['files']['mapa_discord.json']['content'])
-                        vincular_id = cliente_id_raw if cliente_id_raw else "GUEST"
-                        
-                        if mapa.get(discord_id_web) != vincular_id:
-                            mapa[discord_id_web] = vincular_id
-                            updated_files = {"mapa_discord.json": {"content": json.dumps(mapa, indent=2)}}
-                            requests.patch(f"https://api.github.com/gists/{gist_id}", 
-                                         headers=headers, 
-                                         json={"files": updated_files})
-                            print(f"✅ Sincronización realizada: Discord {discord_id_web} vinculado a {vincular_id}")
-
-            except Exception as ge:
-                print(f"⚠️ Error Gist: {ge}")
-
-        # 4. Configuración de envío inteligente
-        id_canal_guest = os.getenv('ID_CANAL_SOPORTE')
-        id_canal_vip = os.getenv('ID_CANAL_VIP')
-        ID_CAT_ARCHIVADOS = 1473689333964738633 # Categoría de Tickets Cerrados
-        
-        color_final = discord.Color.gold() if es_vip else discord.Color.blue()
-        titulo_final = f"👑 VIP: {nombre_final}" if es_vip else f"👤 CONSULTA: {nombre_final}"
-        status_footer = "EMPRESA VERIFICADA ✅" if es_vip else "ID NO VÁLIDO / GUEST ⚠️"
-
-        # 5. Embed Final
-        embed = discord.Embed(title=titulo_final, color=color_final, timestamp=discord.utils.utcnow())
-        if es_vip:
-            embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
-
-        embed.add_field(name="🏢 Empresa", value=f"**{nombre_final}**", inline=False)
-        embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
-        embed.add_field(name="🆔 Discord ID", value=f"<@{discord_id_web}> (`{discord_id_web}`)" if discord_id_web else "`No provisto`", inline=True)
-        embed.add_field(name="📧 Contacto", value=f"`{email_usuario if email_usuario else 'N/A'}`", inline=True)
-        embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
-        embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
-        embed.set_footer(text=f"Blitz Hub System • {status_footer}")
-
-        async def send_msg():
+        # 3. Función interna para enviar/crear canal
+        async def process_discord_side():
             await bot.wait_until_ready()
             
-            # Buscamos si el usuario ya tiene un canal ACTIVO (no archivado)
-            # El nombre del canal se genera igual que en on_member_join
-            nombre_canal_busqueda = f"{nombre_final.lower()}-{nombre_usuario.lower()}".replace(" ", "-")
+            ID_CAT_ARCHIVADOS = 1473689333964738633
+            cat_id_activa = int(os.getenv('CAT_VIP_ID')) if es_vip else int(os.getenv('CAT_ESTANDAR_ID'))
             
-            canal_existente = discord.utils.get(bot.get_all_channels(), name=nombre_canal_busqueda)
-            
-            # Solo usamos el canal si existe Y no pertenece a la categoría de cerrados
-            if canal_existente and canal_existente.category_id != ID_CAT_ARCHIVADOS:
-                await canal_existente.send(content=f"🔔 **Nueva actualización de ticket:**", embed=embed)
-            else:
-                # Si está archivado o no existe, va al canal de staff para que se atienda/cree uno nuevo
-                canal_staff_id = int(id_canal_vip) if es_vip and id_canal_vip else int(id_canal_guest)
-                canal_staff = bot.get_channel(canal_staff_id) or await bot.fetch_channel(canal_staff_id)
-                content = f"👑 **¡ALERTA VIP!** <@{discord_id_web}>" if es_vip and discord_id_web else None
-                await canal_staff.send(content=content, embed=embed)
+            guild = bot.guilds[0] # El bot asume que está en tu servidor principal
+            member = guild.get_member(int(discord_id_web)) if discord_id_web.isdigit() else None
 
-        bot.loop.create_task(send_msg())
-        return {"status": "success", "message": "Ticket enviado"}, 200
+            # Generamos un nombre único basado en tiempo o ID para que no colisione con el archivado
+            # Ejemplo: apple-pepe-1422
+            from datetime import datetime
+            suffix = datetime.now().strftime("%H%M")
+            nombre_nuevo_canal = f"{nombre_final.lower()}-{nombre_usuario.lower()}-{suffix}".replace(" ", "-")
+
+            # Definir Embed
+            embed = discord.Embed(title=f"🎫 Nueva Incidencia: {nombre_final}", color=discord.Color.gold() if es_vip else discord.Color.blue())
+            embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
+            embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
+            embed.add_field(name="📝 Problema", value=problema, inline=False)
+
+            if member:
+                # EL USUARIO YA ESTÁ EN EL DISCORD -> CREAMOS CANAL DIRECTO
+                category = guild.get_channel(cat_id_activa)
+                overwrites = {
+                    guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                    member: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+                    guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                }
+                # Dar acceso al Dev
+                rol_dev = guild.get_role(int(os.getenv('ID_ROL_DEV')))
+                if rol_dev: overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+
+                nuevo_canal = await guild.create_text_channel(name=nombre_nuevo_canal, category=category, overwrites=overwrites)
+                await nuevo_canal.send(content=f"{member.mention} Bienvenido a tu nuevo ticket de soporte.", embed=embed)
+                if es_vip and rol_dev: await nuevo_canal.send(f"{rol_dev.mention} 🚨 Ticket VIP Urgente.")
+            else:
+                # EL USUARIO NO ESTÁ -> Mandamos al canal de Staff general
+                canal_staff_id = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE'))
+                canal_staff = bot.get_channel(canal_staff_id)
+                await canal_staff.send(content=f"⚠️ Usuario fuera del server: <@{discord_id_web}>", embed=embed)
+
+        bot.loop.create_task(process_discord_side())
+        return {"status": "success", "message": "Ticket procesado"}, 200
 
     except Exception as e:
-        print(f"⚠️ Error: {e}")
+        print(f"Error: {e}")
         return {"status": "error", "message": str(e)}, 500
 
 # ----------------------------
