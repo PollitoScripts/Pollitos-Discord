@@ -12,16 +12,16 @@ from quart_cors import cors
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
 
-# Tus IDs de categorías (Cópialos de Discord como te enseñé)
-CAT_VIP = 1473688902442287105  # Categoría SOPORTE CRÍTICO
-CAT_ESTANDAR = 1473689289434075197  # Categoría SOPORTE ESTÁNDAR
-ID_ROL_DEV = 1473366087390331094  # Tu ID de rol de Administrador/Dev
-
 # ----------------------------
 # Configuración de la API (Tickets & Empresa)
 # ----------------------------
 app = Quart(__name__)
 app = cors(app, allow_origin="https://pollitoscripts.github.io")
+
+# Cargamos las IDs desde variables de entorno de Render
+CAT_VIP = int(os.getenv('CAT_VIP_ID', 0))
+CAT_ESTANDAR = int(os.getenv('CAT_ESTANDAR_ID', 0))
+ID_ROL_DEV = int(os.getenv('ID_ROL_DEV', 0))
 
 @app.route('/')
 async def index():
@@ -36,39 +36,60 @@ async def handle_ticket():
         cliente_id_raw = data.get('cliente_id', "").strip().upper()
         nombre_usuario = data.get('nombre', 'Desconocido')
         email_usuario = data.get('email', '').strip()
-        nombre_empresa_web = data.get('empresa', '').strip().upper() # Lo que el usuario escribió
+        nombre_empresa_web = data.get('empresa', '').strip().upper() 
+        discord_id_web = data.get('discord_id', '').strip()
         
         es_vip = False
         gist_id = os.getenv('GIST_ID')
         github_token = os.getenv('GITHUB_TOKEN')
         
-        # 2. Variable para el nombre que vamos a mostrar
-        # Si el usuario escribió algo en 'empresa', lo usamos. Si no, usamos 'Nombre (Email)'
-        if nombre_empresa_web:
+        # 2. Definir nombre para mostrar
+        if nombre_empresa_web and nombre_empresa_web != "N/A":
             nombre_final = nombre_empresa_web
         else:
             nombre_final = f"{nombre_usuario} ({email_usuario if email_usuario else 'Sin Email'})"
 
-        # 3. Validación contra Gist (Solo para dar la corona y canal VIP)
-        if gist_id and github_token and cliente_id_raw and cliente_id_raw != "GUEST":
+        # 3. Gestión de Gist (Sincronización de Clientes y Mapeo Discord)
+        if gist_id and github_token:
             try:
                 headers = {"Authorization": f"token {github_token}"}
                 r = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
+                
                 if r.status_code == 200:
-                    db = json.loads(r.json()['files']['clientes.json']['content'])
+                    gist_content = r.json()
+                    
+                    # --- A) Verificar si es VIP ---
+                    db = json.loads(gist_content['files']['clientes.json']['content'])
                     if cliente_id_raw in db:
                         es_vip = True
-                        # Si es VIP y dejó el campo empresa vacío en la web,
-                        # rescatamos su nombre real de empresa del Gist.
-                        if not nombre_empresa_web:
+                        if not nombre_empresa_web or nombre_empresa_web == "N/A":
                             nombre_final = db[cliente_id_raw].get('empresa', 'EMPRESA VIP')
+
+                    # --- B) MAPEADO SIEMPRE (VIP o GUEST) ---
+                    # Guardamos la relación DiscordID -> ClienteID (o "GUEST")
+                    if discord_id_web and 'mapa_discord.json' in gist_content['files']:
+                        mapa = json.loads(gist_content['files']['mapa_discord.json']['content'])
+                        vincular_id = cliente_id_raw if cliente_id_raw else "GUEST"
+                        
+                        # Si el ID de Discord no está o ha cambiado su vinculación, actualizamos
+                        if mapa.get(discord_id_web) != vincular_id:
+                            mapa[discord_id_web] = vincular_id
+                            updated_files = {
+                                "mapa_discord.json": {"content": json.dumps(mapa, indent=2)}
+                            }
+                            requests.patch(f"https://api.github.com/gists/{gist_id}", 
+                                         headers=headers, 
+                                         json={"files": updated_files})
+                            print(f"✅ Sincronización realizada: Discord {discord_id_web} vinculado a {vincular_id}")
+
             except Exception as ge:
                 print(f"⚠️ Error Gist: {ge}")
 
-        # 4. Configuración de envío
+        # 4. Configuración de envío a canales
         id_canal_guest = os.getenv('ID_CANAL_SOPORTE')
         id_canal_vip = os.getenv('ID_CANAL_VIP')
         canal_id_final = int(id_canal_vip) if es_vip and id_canal_vip else int(id_canal_guest)
+        
         canal = bot.get_channel(canal_id_final) or await bot.fetch_channel(canal_id_final)
 
         color_final = discord.Color.gold() if es_vip else discord.Color.blue()
@@ -81,9 +102,9 @@ async def handle_ticket():
         if es_vip:
             embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
 
-        # Aquí mostramos los datos tal cual llegaron de la web
-        embed.add_field(name="🏢 Empresa/Origen", value=f"**{nombre_final}**", inline=False)
+        embed.add_field(name="🏢 Empresa", value=f"**{nombre_final}**", inline=False)
         embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
+        embed.add_field(name="🆔 Discord ID", value=f"<@{discord_id_web}> (`{discord_id_web}`)" if discord_id_web else "`No provisto`", inline=True)
         embed.add_field(name="📧 Contacto", value=f"`{email_usuario if email_usuario else 'N/A'}`", inline=True)
         embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
         embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
@@ -91,7 +112,7 @@ async def handle_ticket():
 
         async def send_msg():
             await bot.wait_until_ready()
-            content = f"👑 **¡ALERTA VIP!** {nombre_final}" if es_vip else None
+            content = f"👑 **¡ALERTA VIP!** <@{discord_id_web}>" if es_vip and discord_id_web else None
             await canal.send(content=content, embed=embed)
 
         bot.loop.create_task(send_msg())
