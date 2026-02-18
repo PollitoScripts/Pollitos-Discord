@@ -65,18 +65,14 @@ async def handle_ticket():
                         if not nombre_empresa_web or nombre_empresa_web == "N/A":
                             nombre_final = db[cliente_id_raw].get('empresa', 'EMPRESA VIP')
 
-                    # --- B) MAPEADO SIEMPRE (VIP o GUEST) ---
-                    # Guardamos la relación DiscordID -> ClienteID (o "GUEST")
+                    # --- B) MAPEADO AUTOMÁTICO SIEMPRE (Corregido) ---
                     if discord_id_web and 'mapa_discord.json' in gist_content['files']:
                         mapa = json.loads(gist_content['files']['mapa_discord.json']['content'])
                         vincular_id = cliente_id_raw if cliente_id_raw else "GUEST"
                         
-                        # Si el ID de Discord no está o ha cambiado su vinculación, actualizamos
                         if mapa.get(discord_id_web) != vincular_id:
                             mapa[discord_id_web] = vincular_id
-                            updated_files = {
-                                "mapa_discord.json": {"content": json.dumps(mapa, indent=2)}
-                            }
+                            updated_files = {"mapa_discord.json": {"content": json.dumps(mapa, indent=2)}}
                             requests.patch(f"https://api.github.com/gists/{gist_id}", 
                                          headers=headers, 
                                          json={"files": updated_files})
@@ -127,17 +123,13 @@ async def handle_ticket():
 # ----------------------------
 async def services():
     channel = bot.get_channel(config.channel_id)
-    
     if channel is None:
-        print(f'⚠️ No se encontró el canal {config.channel_id}, reintentando...')
         await asyncio.sleep(5)
         channel = bot.get_channel(config.channel_id)
-
     if channel is None: return
 
     try:
         await channel.purge() 
-
         with open('json/streaming_services.json', 'r') as file:
             streaming_services = json.load(file)["streaming_services"]
 
@@ -188,6 +180,7 @@ async def load_extensions():
         if filename.endswith(".py") and filename not in ["__init__.py", "webserver.py"]:
             try:
                 await bot.load_extension(f"cogs.{filename[:-3]}")
+                print(f"✅ Cog cargado: {filename}")
             except Exception as e:
                 print(f"❌ Error cog {filename}: {e}")
 
