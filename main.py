@@ -27,18 +27,24 @@ async def handle_ticket():
     try:
         data = await request.get_json()
         
-        # 1. Recogida de datos
+        # 1. Recogida de datos limpia
         cliente_id_raw = data.get('cliente_id', "").strip().upper()
         nombre_usuario = data.get('nombre', 'Desconocido')
         email_usuario = data.get('email', '').strip()
-        nombre_empresa_web = data.get('empresa', '').strip().upper()
+        nombre_empresa_web = data.get('empresa', '').strip().upper() # Lo que el usuario escribió
         
         es_vip = False
         gist_id = os.getenv('GIST_ID')
         github_token = os.getenv('GITHUB_TOKEN')
         
-        # 2. Validación contra Gist
-        nombre_empresa = nombre_empresa_web # Empezamos con lo que diga la web
+        # 2. Variable para el nombre que vamos a mostrar
+        # Si el usuario escribió algo en 'empresa', lo usamos. Si no, usamos 'Nombre (Email)'
+        if nombre_empresa_web:
+            nombre_final = nombre_empresa_web
+        else:
+            nombre_final = f"{nombre_usuario} ({email_usuario if email_usuario else 'Sin Email'})"
+
+        # 3. Validación contra Gist (Solo para dar la corona y canal VIP)
         if gist_id and github_token and cliente_id_raw and cliente_id_raw != "GUEST":
             try:
                 headers = {"Authorization": f"token {github_token}"}
@@ -47,37 +53,31 @@ async def handle_ticket():
                     db = json.loads(r.json()['files']['clientes.json']['content'])
                     if cliente_id_raw in db:
                         es_vip = True
-                        # Si es VIP y no puso empresa, la recuperamos del Gist
-                        if not nombre_empresa:
-                            nombre_empresa = db[cliente_id_raw].get('empresa', 'EMPRESA VIP')
+                        # Si es VIP y dejó el campo empresa vacío en la web,
+                        # rescatamos su nombre real de empresa del Gist.
+                        if not nombre_empresa_web:
+                            nombre_final = db[cliente_id_raw].get('empresa', 'EMPRESA VIP')
             except Exception as ge:
                 print(f"⚠️ Error Gist: {ge}")
 
-        # 3. Lógica del Título (Tu petición específica)
-        # Si hay empresa (vía web o Gist), se usa. Si no, Nombre + Email.
-        if nombre_empresa:
-            identificador_display = nombre_empresa
-        else:
-            identificador_display = f"{nombre_usuario} ({email_usuario if email_usuario else 'Sin Email'})"
-
-        # 4. Estética y Canales
+        # 4. Configuración de envío
         id_canal_guest = os.getenv('ID_CANAL_SOPORTE')
         id_canal_vip = os.getenv('ID_CANAL_VIP')
         canal_id_final = int(id_canal_vip) if es_vip and id_canal_vip else int(id_canal_guest)
         canal = bot.get_channel(canal_id_final) or await bot.fetch_channel(canal_id_final)
 
         color_final = discord.Color.gold() if es_vip else discord.Color.blue()
-        titulo_final = f"👑 VIP: {identificador_display}" if es_vip else f"👤 CONSULTA: {identificador_display}"
+        titulo_final = f"👑 VIP: {nombre_final}" if es_vip else f"👤 CONSULTA: {nombre_final}"
         status_footer = "EMPRESA VERIFICADA ✅" if es_vip else "ID NO VÁLIDO / GUEST ⚠️"
 
-        # 5. Construcción del Embed
+        # 5. Embed Final
         embed = discord.Embed(title=titulo_final, color=color_final, timestamp=discord.utils.utcnow())
         
         if es_vip:
             embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
 
-        # Mostramos los datos por separado para que sea legible
-        embed.add_field(name="🏢 Empresa/Origen", value=f"**{nombre_empresa if nombre_empresa else 'PARTICULAR'}**", inline=False)
+        # Aquí mostramos los datos tal cual llegaron de la web
+        embed.add_field(name="🏢 Empresa/Origen", value=f"**{nombre_final}**", inline=False)
         embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
         embed.add_field(name="📧 Contacto", value=f"`{email_usuario if email_usuario else 'N/A'}`", inline=True)
         embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
@@ -86,7 +86,7 @@ async def handle_ticket():
 
         async def send_msg():
             await bot.wait_until_ready()
-            content = f"👑 **¡ALERTA VIP!** {nombre_empresa}" if es_vip else None
+            content = f"👑 **¡ALERTA VIP!** {nombre_final}" if es_vip else None
             await canal.send(content=content, embed=embed)
 
         bot.loop.create_task(send_msg())
