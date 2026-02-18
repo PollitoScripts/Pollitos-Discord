@@ -27,64 +27,60 @@ async def handle_ticket():
     try:
         data = await request.get_json()
         
-        # 1. Recogida de datos inicial
+        # 1. Recogida de datos
         cliente_id_raw = data.get('cliente_id', "").strip().upper()
         nombre_usuario = data.get('nombre', 'Desconocido')
-        # Si no pone empresa, por defecto es PARTICULAR
-        nombre_empresa = data.get('empresa', '').strip().upper() or "PARTICULAR"
-        email_web = data.get('email', 'No proporcionado')
+        email_usuario = data.get('email', '').strip()
+        nombre_empresa_web = data.get('empresa', '').strip().upper()
         
         es_vip = False
         gist_id = os.getenv('GIST_ID')
         github_token = os.getenv('GITHUB_TOKEN')
         
-        # 2. Validación Real contra Gist (Lógica JSON que respeta el nombre del usuario)
+        # 2. Validación contra Gist
+        nombre_empresa = nombre_empresa_web # Empezamos con lo que diga la web
         if gist_id and github_token and cliente_id_raw and cliente_id_raw != "GUEST":
             try:
                 headers = {"Authorization": f"token {github_token}"}
-                response_gist = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
-                
-                if response_gist.status_code == 200:
-                    gist_data = response_gist.json()
-                    # Accedemos al archivo clientes.json
-                    clientes_db = json.loads(gist_data['files']['clientes.json']['content'])
-                    
-                    if cliente_id_raw in clientes_db:
+                r = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
+                if r.status_code == 200:
+                    db = json.loads(r.json()['files']['clientes.json']['content'])
+                    if cliente_id_raw in db:
                         es_vip = True
-                        # Solo sobreescribimos si el usuario dejó el campo vacío en la web
-                        if nombre_empresa == "PARTICULAR":
-                            nombre_empresa = clientes_db[cliente_id_raw].get('empresa', 'EMPRESA VIP')
+                        # Si es VIP y no puso empresa, la recuperamos del Gist
+                        if not nombre_empresa:
+                            nombre_empresa = db[cliente_id_raw].get('empresa', 'EMPRESA VIP')
             except Exception as ge:
-                print(f"⚠️ Error validando Gist: {ge}")
+                print(f"⚠️ Error Gist: {ge}")
 
-        # 3. Selección de canal según el resultado de la validación
+        # 3. Lógica del Título (Tu petición específica)
+        # Si hay empresa (vía web o Gist), se usa. Si no, Nombre + Email.
+        if nombre_empresa:
+            identificador_display = nombre_empresa
+        else:
+            identificador_display = f"{nombre_usuario} ({email_usuario if email_usuario else 'Sin Email'})"
+
+        # 4. Estética y Canales
         id_canal_guest = os.getenv('ID_CANAL_SOPORTE')
         id_canal_vip = os.getenv('ID_CANAL_VIP')
         canal_id_final = int(id_canal_vip) if es_vip and id_canal_vip else int(id_canal_guest)
-        canal = bot.get_channel(canal_id_final)
-        
-        if not canal:
-            canal = await bot.fetch_channel(canal_id_final)
+        canal = bot.get_channel(canal_id_final) or await bot.fetch_channel(canal_id_final)
 
-        # 4. Estética DINÁMICA
         color_final = discord.Color.gold() if es_vip else discord.Color.blue()
-        
-        if es_vip:
-            titulo_final = f"👑 VIP: {nombre_empresa}"
-            status_footer = "EMPRESA VERIFICADA ✅"
-        else:
-            titulo_final = f"👤 CONSULTA: {nombre_empresa}"
-            status_footer = "ID NO VÁLIDO / GUEST ⚠️"
+        titulo_final = f"👑 VIP: {identificador_display}" if es_vip else f"👤 CONSULTA: {identificador_display}"
+        status_footer = "EMPRESA VERIFICADA ✅" if es_vip else "ID NO VÁLIDO / GUEST ⚠️"
 
+        # 5. Construcción del Embed
         embed = discord.Embed(title=titulo_final, color=color_final, timestamp=discord.utils.utcnow())
         
         if es_vip:
             embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
 
-        embed.add_field(name="🏢 Empresa/Origen", value=f"**{nombre_empresa}**", inline=False)
-        embed.add_field(name="👤 Empleado", value=nombre_usuario, inline=True)
-        embed.add_field(name="📧 Correo Contacto", value=f"`{email_web}`", inline=True) # <--- USA EL DE LA WEB
-        embed.add_field(name="🔑 ID Contrato", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
+        # Mostramos los datos por separado para que sea legible
+        embed.add_field(name="🏢 Empresa/Origen", value=f"**{nombre_empresa if nombre_empresa else 'PARTICULAR'}**", inline=False)
+        embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
+        embed.add_field(name="📧 Contacto", value=f"`{email_usuario if email_usuario else 'N/A'}`", inline=True)
+        embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
         embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
         embed.set_footer(text=f"Blitz Hub System • {status_footer}")
 
