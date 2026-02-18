@@ -13,22 +13,34 @@ from quart import Quart, request
 from quart_cors import cors
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
+
 # ----------------------------
 # Configuración de la API (Tickets)
 # ----------------------------
 app = Quart(__name__)
-app = cors(app) # Permite peticiones desde dominios externos como GitHub Pages
+# Modificado para permitir conexiones desde cualquier origen (GitHub Pages)
+app = cors(app, allow_origin="*") 
 
 @app.route('/ticket', methods=['POST'])
 async def handle_ticket():
-    data = await request.get_json()
-    
-    # Obtenemos el canal de soporte desde config o variables de entorno
-    # Usamos la variable ID_CANAL_SOPORTE que configuramos en Render
-    canal_id = int(os.getenv('ID_CANAL_SOPORTE', 0))
-    canal = bot.get_channel(canal_id)
-    
-    if canal:
+    try:
+        data = await request.get_json()
+        
+        # Obtenemos el canal de soporte desde variables de entorno
+        canal_id_env = os.getenv('ID_CANAL_SOPORTE')
+        if not canal_id_env:
+            return {"status": "error", "message": "Variable ID_CANAL_SOPORTE no configurada"}, 500
+            
+        canal_id = int(canal_id_env)
+        
+        # Intentamos obtener el canal (Caché -> API)
+        canal = bot.get_channel(canal_id)
+        if not canal:
+            try:
+                canal = await bot.fetch_channel(canal_id)
+            except:
+                return {"status": "error", "message": "Canal no encontrado"}, 500
+
         embed = discord.Embed(
             title="🚀 Nueva Entrada de Soporte (Web)",
             color=discord.Color.blue(),
@@ -40,34 +52,34 @@ async def handle_ticket():
         embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
         embed.set_footer(text="Blitz Hub System")
         
-        # Enviamos el mensaje al canal de soporte
+        # Aseguramos que el bot esté listo antes de enviar
+        await bot.wait_until_ready()
         await canal.send(embed=embed)
+        
         return {"status": "success", "message": "Ticket enviado correctamente"}, 200
-    
-    return {"status": "error", "message": "Configuración de canal inválida"}, 500
+    except Exception as e:
+        print(f"⚠️ Error en API: {e}")
+        return {"status": "error", "message": str(e)}, 500
 
 # ----------------------------
 # Hilo del Servidor Web
 # ----------------------------
-# --- MODIFICA TU FUNCIÓN run_web ---
 def run_web():
     port = int(os.getenv("PORT", 8080))
-    config = Config()
-    config.bind = [f"0.0.0.0:{port}"]
+    config_hyper = Config() # Renombrado para no chocar con tu import 'config'
+    config_hyper.bind = [f"0.0.0.0:{port}"]
     
-    # Creamos un bucle de eventos nuevo para este hilo
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    # Creamos un evento que NUNCA se activa para engañar a Hypercorn
-    # y que no intente registrar señales de sistema (SIGHUP, SIGTERM, etc)
+    # Evento de apagado para evitar el error de hilos en Python 3.14
     shutdown_event = asyncio.Event()
     
     print(f"🌐 API de Tickets activa en puerto: {port}")
     
     try:
-        # Pasamos el shutdown_trigger para que Hypercorn se quede "mudo"
-        loop.run_until_complete(serve(app, config, shutdown_trigger=shutdown_event.wait))
+        # Se añade shutdown_trigger para evitar que Hypercorn registre señales de sistema
+        loop.run_until_complete(serve(app, config_hyper, shutdown_trigger=shutdown_event.wait))
     except Exception as e:
         print(f"⚠️ Error en el servidor web: {e}")
 
