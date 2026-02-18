@@ -105,6 +105,7 @@ async def handle_ticket():
             embed.add_field(name="🏢 Empresa", value=f"**{nombre_final}**", inline=False)
             embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
             embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw or 'GUEST'}`", inline=True)
+            embed.add_field(name="📧 Contacto", value=f"`{email_usuario}`", inline=True) 
             embed.add_field(name="📝 Problema", value=problema, inline=False)
 
             if canal_staff:
