@@ -87,28 +87,41 @@ class CustomerService(commands.Cog):
         except Exception as e:
             print(f"❌ Error en automatización: {e}")
 
-@commands.command(name="cerrar", aliases=["cerrrar", "finish"])
+@commands.command(name="cerrar", aliases=["close"])
     @commands.has_role(int(os.getenv('ID_ROL_DEV', 0)))
-    async def cerrar_ticket(self, ctx):
-        """Mueve el canal a la categoría de archivados y quita permisos al usuario"""
+    async def cerrar_ticket(self, ctx, *, solucion: str = "No se ha especificado una descripción detallada."):
+        """Archiva el ticket y envía la solución al usuario por DM"""
         
         ID_CAT_ARCHIVADOS = 1473689333964738633
         categoria_archivo = ctx.guild.get_channel(ID_CAT_ARCHIVADOS)
 
-        if not categoria_archivo:
-            return await ctx.send("❌ Error: No se encontró la categoría de archivados.")
-
-        # 1. Identificar al usuario del ticket (basado en los permisos actuales)
-        # Buscamos al miembro que no sea el bot ni tú (Dev)
+        # 1. Identificar al usuario del ticket antes de cambiar nada
         usuario_ticket = None
         for target, overwrite in ctx.channel.overwrites.items():
             if isinstance(target, discord.Member) and not target.bot:
                 usuario_ticket = target
                 break
 
-        await ctx.send("⏳ Cerrando ticket y archivando canal...")
+        if not usuario_ticket:
+            return await ctx.send("❌ No he podido identificar al usuario propietario de este ticket.")
 
-        # 2. Modificar permisos: Quitar acceso al usuario, mantenerlo para ti (Dev)
+        # 2. Intentar enviar el DM con el Fix
+        embed_dm = discord.Embed(
+            title="✅ Ticket Finalizado - Blitz Hub",
+            description=f"Tu incidencia en el canal **{ctx.channel.name}** ha sido marcada como resuelta.",
+            color=discord.Color.green(),
+            timestamp=discord.utils.utcnow()
+        )
+        embed_dm.add_field(name="🛠️ Solución Aplicada", value=solucion)
+        embed_dm.set_footer(text="Si necesitas más ayuda, puedes abrir un nuevo ticket desde nuestra web.")
+
+        try:
+            await usuario_ticket.send(embed=embed_dm)
+            dm_status = "✅ Solución enviada por DM."
+        except discord.Forbidden:
+            dm_status = "⚠️ No pude enviar DM (el usuario tiene los mensajes cerrados)."
+
+        # 3. Archivar el canal
         new_overwrites = {
             ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             ctx.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
@@ -118,20 +131,16 @@ class CustomerService(commands.Cog):
         if rol_dev:
             new_overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
-        # Aplicamos el cambio: el usuario ya no verá el canal
-        await ctx.channel.edit(category=categoria_archivo, overwrites=new_overwrites)
-
-        # 3. Cambiar el nombre para indicar que está cerrado (opcional pero recomendado)
-        nuevo_nombre = f"z-{ctx.channel.name}"
-        await ctx.channel.edit(name=nuevo_nombre)
-
-        # 4. Mensaje final de log
-        embed_cierre = discord.Embed(
-            title="Ticket Cerrado",
-            description=f"Este ticket ha sido archivado por {ctx.author.mention}.",
-            color=discord.Color.red()
+        # Movemos y renombramos
+        fecha_cierre = discord.utils.utcnow().strftime("%d-%m")
+        await ctx.channel.edit(
+            name=f"fixed-{ctx.channel.name}-{fecha_cierre}",
+            category=categoria_archivo,
+            overwrites=new_overwrites
         )
-        await ctx.send(embed=embed_cierre)
+
+        # 4. Confirmación en el canal (para tu registro)
+        await ctx.send(f"🔒 **Ticket Archivado.**\n{dm_status}")
 
 async def setup(bot):
     await bot.add_cog(CustomerService(bot))
