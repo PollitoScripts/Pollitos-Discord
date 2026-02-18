@@ -55,13 +55,21 @@ def run_web():
     config = Config()
     config.bind = [f"0.0.0.0:{port}"]
     
-    # Usamos un nuevo bucle de eventos para este hilo
+    # Creamos un bucle de eventos nuevo para este hilo
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
+    # Creamos un evento que NUNCA se activa para engañar a Hypercorn
+    # y que no intente registrar señales de sistema (SIGHUP, SIGTERM, etc)
+    shutdown_event = asyncio.Event()
+    
     print(f"🌐 API de Tickets activa en puerto: {port}")
-    # 'use_reloader=False' y evitar handlers de señales es clave
-    loop.run_until_complete(serve(app, config))
+    
+    try:
+        # Pasamos el shutdown_trigger para que Hypercorn se quede "mudo"
+        loop.run_until_complete(serve(app, config, shutdown_trigger=shutdown_event.wait))
+    except Exception as e:
+        print(f"⚠️ Error en el servidor web: {e}")
 
 # ----------------------------
 # Configuración del bot
