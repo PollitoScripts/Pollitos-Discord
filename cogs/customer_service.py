@@ -124,20 +124,32 @@ class CustomerService(commands.Cog):
             except:
                 pass
 
+        # 3. Mover a categoría de archivos y renombrar
         try:
-            cat_archivados = discord.utils.get(ctx.guild.categories, name="ARCHIVADOS")
+            # Buscamos la categoría por ID en lugar de por nombre
+            cat_archivados = ctx.guild.get_channel(self.id_cat_archivados)
+            
             nuevo_nombre = f"✅-{ctx.channel.name}"[:100]
             
-            if cat_archivados:
+            # Preparamos los cambios del canal
+            edit_params = {"name": nuevo_nombre}
+            
+            if cat_archivados and isinstance(cat_archivados, discord.CategoryChannel):
+                edit_params["category"] = cat_archivados
+                
+                # Quitar permisos al usuario para que ya no vea el canal archivado
                 if usuario_ticket:
                     await ctx.channel.set_permissions(usuario_ticket, overwrite=None)
-                await ctx.channel.edit(name=nuevo_nombre, category=cat_archivados)
+                
+                await ctx.channel.edit(**edit_params)
                 await ctx.send(f"✅ Ticket archivado en **{cat_archivados.name}**.")
             else:
+                # Si la ID no es válida o no se encuentra, solo renombramos
                 await ctx.channel.edit(name=nuevo_nombre)
-                await ctx.send("⚠️ Categoría 'ARCHIVADOS' no encontrada.")
+                await ctx.send(f"⚠️ Variable `ID_CAT_ARCHIVADOS` no válida o categoría no encontrada. Canal renombrado.")
+                
         except Exception as e:
-            await ctx.send(f"❌ Error al cerrar: {e}")
+            await ctx.send(f"❌ Error al intentar cerrar el canal: {e}")
 
 async def setup(bot):
     await bot.add_cog(CustomerService(bot))
