@@ -27,17 +27,18 @@ async def handle_ticket():
     try:
         data = await request.get_json()
         
-        # Recogida de datos (Nombre, Empresa, ID)
+        # 1. Recogida de datos
         cliente_id_raw = data.get('cliente_id', "").strip().upper()
         nombre_usuario = data.get('nombre', 'Desconocido')
-        nombre_empresa = data.get('empresa', 'PARTICULAR').strip().upper()
+        # Si no pone empresa, por defecto es PARTICULAR
+        nombre_empresa = data.get('empresa', '').strip().upper() or "PARTICULAR"
         
         es_vip = False
         gist_id = os.getenv('GIST_ID')
         github_token = os.getenv('GITHUB_TOKEN')
         
-        # Validación contra Gist (Capacidad infinita de usuarios por ID)
-        if gist_id and github_token and cliente_id_raw:
+        # 2. Validación Real contra Gist
+        if gist_id and github_token and cliente_id_raw and cliente_id_raw != "GUEST":
             try:
                 headers = {"Authorization": f"token {github_token}"}
                 response_gist = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
@@ -50,7 +51,7 @@ async def handle_ticket():
             except Exception as ge:
                 print(f"⚠️ Error Gist: {ge}")
 
-        # Selección de canal
+        # 3. Selección de canal según el resultado de la validación
         id_canal_guest = os.getenv('ID_CANAL_SOPORTE')
         id_canal_vip = os.getenv('ID_CANAL_VIP')
         canal_id_final = int(id_canal_vip) if es_vip and id_canal_vip else int(id_canal_guest)
@@ -59,24 +60,32 @@ async def handle_ticket():
         if not canal:
             canal = await bot.fetch_channel(canal_id_final)
 
-        # Estética del mensaje
+        # 4. Estética DINÁMICA
+        # Si es VIP: Dorado y Corona. Si no: Azul y nombre de empresa normal.
         color_final = discord.Color.gold() if es_vip else discord.Color.blue()
-        titulo_final = f"👑 TICKET EMPRESA: {nombre_empresa}" if es_vip else "👤 CONSULTA GUEST"
+        
+        if es_vip:
+            titulo_final = f"👑 VIP: {nombre_empresa}"
+            status_footer = "EMPRESA VERIFICADA ✅"
+        else:
+            # Aquí está el cambio: mantiene el nombre de empresa pero avisa que NO es verificado
+            titulo_final = f"👤 CONSULTA: {nombre_empresa}"
+            status_footer = "ID NO VÁLIDO / GUEST ⚠️"
 
         embed = discord.Embed(title=titulo_final, color=color_final, timestamp=discord.utils.utcnow())
+        
         if es_vip:
             embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
 
-        embed.add_field(name="🏢 Empresa", value=f"**{nombre_empresa}**", inline=False)
+        embed.add_field(name="🏢 Empresa/Origen", value=f"**{nombre_empresa}**", inline=False)
         embed.add_field(name="👤 Empleado", value=nombre_usuario, inline=True)
-        embed.add_field(name="📧 Email", value=data.get('email', 'N/A'), inline=True)
-        embed.add_field(name="🔑 ID Contrato", value=f"`{cliente_id_raw}`", inline=True)
+        embed.add_field(name="🔑 ID Contrato", value=f"`{cliente_id_raw if cliente_id_raw else 'GUEST'}`", inline=True)
         embed.add_field(name="📝 Problema", value=data.get('problema', 'Sin descripción'), inline=False)
-        embed.set_footer(text=f"Status: {'VERIFICADO ✅' if es_vip else 'NO VERIFICADO'}")
+        embed.set_footer(text=f"Blitz Hub System • {status_footer}")
 
         async def send_msg():
             await bot.wait_until_ready()
-            content = f"👑 **NUEVA ALERTA VIP: {nombre_empresa}**" if es_vip else None
+            content = f"👑 **¡ALERTA VIP!** {nombre_empresa}" if es_vip else None
             await canal.send(content=content, embed=embed)
 
         bot.loop.create_task(send_msg())
