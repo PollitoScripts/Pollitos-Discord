@@ -6,6 +6,7 @@ import json
 import asyncio
 import requests
 from threading import Thread
+from datetime import datetime
 # Importaciones para la API
 from quart import Quart, request
 from quart_cors import cors
@@ -43,60 +44,67 @@ async def handle_ticket():
         github_token = os.getenv('GITHUB_TOKEN')
         nombre_final = nombre_empresa_web if nombre_empresa_web else "GUEST"
 
-        # Lógica de Gist para verificar VIP
+        # 1. Lógica de Gist para verificar VIP y ACTUALIZAR MAPA
         if gist_id and github_token:
             try:
                 headers = {"Authorization": f"token {github_token}"}
                 r = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers)
                 if r.status_code == 200:
-                    db = json.loads(r.json()['files']['clientes.json']['content'])
+                    gist_data = r.json()
+                    
+                    # Verificar VIP en clientes.json
+                    db = json.loads(gist_data['files']['clientes.json']['content'])
                     if cliente_id_raw in db:
                         es_vip = True
                         nombre_final = db[cliente_id_raw].get('empresa', nombre_final)
-            except: 
-                pass
+                    
+                    # ACTUALIZAR mapa_discord.json inmediatamente
+                    if discord_id_web:
+                        mapa_content = gist_data['files'].get('mapa_discord.json', {'content': '{}'})['content']
+                        mapa = json.loads(mapa_content)
+                        mapa[str(discord_id_web)] = cliente_id_raw if cliente_id_raw else "GUEST"
+                        
+                        update_data = {
+                            "files": {
+                                "mapa_discord.json": {
+                                    "content": json.dumps(mapa, indent=4)
+                                }
+                            }
+                        }
+                        requests.patch(f"https://api.github.com/gists/{gist_id}", headers=headers, json=update_data)
+                        print(f"✅ Gist actualizado para ID: {discord_id_web}")
 
+            except Exception as e:
+                print(f"⚠️ Error procesando Gist: {e}")
+
+        # 2. Función interna para Discord
         async def process_discord():
             await bot.wait_until_ready()
-            
-            # 1. Selección del servidor por ID
             guild = bot.get_guild(ID_SERVIDOR_BLITZ)
-            if not guild:
-                print(f"❌ Error: No se encontró el servidor con ID {ID_SERVIDOR_BLITZ}")
-                return
+            if not guild: return
 
             member = guild.get_member(int(discord_id_web)) if discord_id_web.isdigit() else None
             
-            # 2. Preparar IDs de canales de registro (Staff)
+            # Registro para Staff
             id_canal_staff = int(os.getenv('ID_CANAL_VIP' if es_vip else 'ID_CANAL_SOPORTE', 0))
             canal_staff = bot.get_channel(id_canal_staff)
 
-            # 3. Preparar el Embed de Registro
-            color_embed = discord.Color.gold() if es_vip else discord.Color.blue()
-            embed = discord.Embed(title=f"🎫 Ticket: {nombre_final}", color=color_embed, timestamp=discord.utils.utcnow())
-            if es_vip:
-                embed.set_author(name="SOPORTE PREMIUM BLITZ", icon_url="https://cdn-icons-png.flaticon.com/512/2533/2533049.png")
-            
+            embed = discord.Embed(title=f"🎫 Ticket: {nombre_final}", color=discord.Color.gold() if es_vip else discord.Color.blue(), timestamp=discord.utils.utcnow())
             embed.add_field(name="🏢 Empresa", value=f"**{nombre_final}**", inline=False)
             embed.add_field(name="👤 Usuario", value=nombre_usuario, inline=True)
             embed.add_field(name="🆔 Discord ID", value=f"<@{discord_id_web}>" if discord_id_web else "`No provisto`", inline=True)
-            embed.add_field(name="🔑 ID Soporte", value=f"`{cliente_id_raw or 'GUEST'}`", inline=True)
             embed.add_field(name="📝 Problema", value=problema, inline=False)
-            embed.set_footer(text=f"Blitz Hub System • {'EMPRESA VERIFICADA ✅' if es_vip else 'GUEST ⚠️'}")
+            embed.set_footer(text="Blitz Hub System")
 
-            # --- ACCIÓN A: ENVIAR SIEMPRE AL CANAL DE REGISTRO (Staff) ---
             if canal_staff:
-                alerta = f"👑 **¡ALERTA VIP!** {nombre_final}" if es_vip else None
-                await canal_staff.send(content=alerta, embed=embed)
+                await canal_staff.send(embed=embed)
 
-            # --- ACCIÓN B: CREAR CANAL PRIVADO SI EL USUARIO ESTÁ EN EL SERVER ---
+            # Crear canal privado
             if member:
-                from datetime import datetime
                 suffix = datetime.now().strftime("%H%M")
-                nombre_canal_privado = f"{nombre_final[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
-                
-                cat_id_activa = CAT_VIP if es_vip else CAT_ESTANDAR
-                category = guild.get_channel(cat_id_activa)
+                nombre_canal = f"{nombre_final[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
+                cat_id = CAT_VIP if es_vip else CAT_ESTANDAR
+                category = guild.get_channel(cat_id)
 
                 overwrites = {
                     guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -104,18 +112,10 @@ async def handle_ticket():
                     guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
                 }
                 rol_dev = guild.get_role(ID_ROL_DEV)
-                if rol_dev: 
-                    overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                if rol_dev: overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
-                # Crear el canal en la categoría correspondiente
-                nuevo_canal = await guild.create_text_channel(name=nombre_canal_privado, category=category, overwrites=overwrites)
-                
-                # Mensaje de bienvenida en el nuevo canal privado
-                await nuevo_canal.send(content=f"Hola {member.mention}, hemos recibido tu incidencia. Un desarrollador te atenderá aquí mismo.", embed=embed)
-                if es_vip and rol_dev:
-                    await nuevo_canal.send(f"{rol_dev.mention} 🚨 **ATENCIÓN: Ticket VIP iniciado.**")
-            else:
-                print(f"ℹ️ El usuario {nombre_usuario} no está en el servidor, solo se envió log a staff.")
+                nuevo_canal = await guild.create_text_channel(name=nombre_canal, category=category, overwrites=overwrites)
+                await nuevo_canal.send(content=f"Hola {member.mention}, atenderemos tu incidencia aquí.", embed=embed)
 
         bot.loop.create_task(process_discord())
         return {"status": "success"}, 200
@@ -124,9 +124,7 @@ async def handle_ticket():
         print(f"Error en handle_ticket: {e}")
         return {"status": "error", "message": str(e)}, 500
 
-# ----------------------------
-# Servidor Web & Bot Setup
-# ----------------------------
+# --- EL RESTO DEL CÓDIGO (run_web, bot, main) SE MANTIENE IGUAL ---
 def run_web():
     port = int(os.getenv("PORT", 8080))
     config_hyper = Config()
@@ -135,8 +133,7 @@ def run_web():
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(serve(app, config_hyper, shutdown_trigger=asyncio.Event().wait))
-    except Exception as e:
-        print(f"⚠️ Error Hypercorn: {e}")
+    except Exception as e: print(f"⚠️ Error Hypercorn: {e}")
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
@@ -147,34 +144,26 @@ async def load_extensions():
             try:
                 await bot.load_extension(f"cogs.{filename[:-3]}")
                 print(f"✅ Cog cargado: {filename}")
-            except Exception as e:
-                print(f"❌ Error cog {filename}: {e}")
+            except Exception as e: print(f"❌ Error cog {filename}: {e}")
 
 @bot.event
 async def on_ready():
     print(f"🤖 BOT ONLINE: {bot.user.name}")
     await load_extensions()
 
-@bot.command()
-async def servicios(ctx):
-    await ctx.send("✅ Lista de servicios actualizada.")
-
 async def self_ping():
     await asyncio.sleep(30)
     url = "https://pollitos-discord.onrender.com/"
     while True:
-        try:
-            await asyncio.get_event_loop().run_in_executor(None, requests.get, url)
-        except: 
-            pass
+        try: await asyncio.get_event_loop().run_in_executor(None, requests.get, url)
+        except: pass
         await asyncio.sleep(600)
 
 async def main():
     TOKEN = os.getenv("DISCORD_TOKEN")
     Thread(target=run_web, daemon=True).start()
     asyncio.create_task(self_ping())
-    async with bot:
-        await bot.start(TOKEN)
+    async with bot: await bot.start(TOKEN)
 
 if __name__ == "__main__":
     asyncio.run(main())
