@@ -13,30 +13,49 @@ class CustomerService(commands.Cog):
         self.id_rol_dev = int(os.getenv('ID_ROL_DEV', 0))
 
     # --- COMANDO DE ALTA (REVISADO Y COMPLETO) ---
-    @commands.has_role(int(os.getenv('ID_ROL_DEV', 0)))
+  @commands.has_role(int(os.getenv('ID_ROL_DEV', 0)))
     @commands.command(name="alta")
-    async def alta(self, ctx, id_soporte: str, empresa: str, miembro: discord.Member):
-        """Asigna ID de Soporte y Empresa a un usuario. Uso: !alta BLITZ-100 Apple @Usuario"""
+    async def alta(self, ctx, empresa: str, miembro: discord.Member):
+        """Genera ID, vincula Discord y añade 30 días de suscripción."""
         headers = {"Authorization": f"token {self.github_token}"}
-        id_soporte = id_soporte.upper()
         
-        await ctx.send(f"⏳ Procesando alta de **{empresa}** en la base de datos...")
+        # 1. GENERAR CÓDIGO BLITZ-XXXX-XXXX
+        def generar_codigo():
+            chars = string.ascii_uppercase + string.digits
+            return f"BLITZ-{''.join(secrets.choice(chars) for _ in range(4))}-{''.join(secrets.choice(chars) for _ in range(4))}"
+
+        id_soporte = generar_codigo()
+        
+        # 2. CALCULAR FECHAS
+        fecha_inicio = datetime.now()
+        fecha_fin = fecha_inicio + timedelta(days=30) # Aquí puedes cambiar los días
+        formato_fecha = "%d/%m/%Y"
+
+        await ctx.send(f"🛡️ Blindando acceso para **{empresa}**...")
 
         try:
-            # 1. Obtener datos actuales del Gist
+            # 3. Obtener datos actuales del Gist
             r = requests.get(f"https://api.github.com/gists/{self.gist_id}", headers=headers)
             gist_data = r.json()
 
-            # 2. Actualizar clientes.json
+            # 4. Actualizar clientes.json con FECHA DE EXPIRACIÓN
             clientes = json.loads(gist_data['files']['clientes.json']['content'])
-            clientes[id_soporte] = {"empresa": empresa, "plan": "Full Hub"}
+            while id_soporte in clientes: id_soporte = generar_codigo()
             
-            # 3. Actualizar mapa_discord.json
+            clientes[id_soporte] = {
+                "empresa": empresa,
+                "plan": "Full Hub",
+                "fecha_alta": fecha_inicio.strftime(formato_fecha),
+                "fecha_expiracion": fecha_fin.strftime(formato_fecha),
+                "estado": "activo"
+            }
+            
+            # 5. Actualizar mapa_discord.json
             mapa_content = gist_data['files'].get('mapa_discord.json', {'content': '{}'})['content']
             mapa = json.loads(mapa_content)
             mapa[str(miembro.id)] = id_soporte
 
-            # 4. Subir ambos archivos a GitHub
+            # 6. Subir a GitHub
             payload = {
                 "files": {
                     "clientes.json": {"content": json.dumps(clientes, indent=4)},
@@ -45,20 +64,28 @@ class CustomerService(commands.Cog):
             }
             requests.patch(f"https://api.github.com/gists/{self.gist_id}", headers=headers, json=payload)
 
-            # 5. Respuesta
-            embed = discord.Embed(title="✅ Cliente Activado", color=discord.Color.green())
-            embed.add_field(name="Empresa", value=empresa, inline=True)
-            embed.add_field(name="ID Soporte", value=f"`{id_soporte}`", inline=True)
-            embed.add_field(name="Usuario", value=miembro.mention, inline=True)
+            # 7. Embed de éxito detallado
+            embed = discord.Embed(title="🚀 Activación de Cliente", color=discord.Color.gold())
+            embed.add_field(name="🏢 Empresa", value=empresa, inline=False)
+            embed.add_field(name="🔑 ID Soporte", value=f"`{id_soporte}`", inline=False)
+            embed.add_field(name="👤 Usuario", value=miembro.mention, inline=True)
+            embed.add_field(name="📅 Vence el", value=fecha_fin.strftime(formato_fecha), inline=True)
+            embed.set_footer(text="Blitz Hub • Sistema de Gestión de Licencias")
             
             await ctx.send(embed=embed)
+            
+            # Mensaje privado al cliente
+            msg = (f"🎊 **¡Bienvenido a Blitz Hub!**\n\n"
+                   f"Tu acceso ha sido activado para: **{empresa}**\n"
+                   f"Tu ID único es: `{id_soporte}`\n"
+                   f"Suscripción válida hasta el: **{fecha_fin.strftime(formato_fecha)}**")
             try:
-                await miembro.send(f"🎉 **¡Bienvenido a Blitz Hub!**\nTu suscripción ha sido activada para **{empresa}**.\nTu ID de Soporte es: `{id_soporte}`.")
+                await miembro.send(msg)
             except:
-                await ctx.send("⚠️ No pude enviar DM al usuario (tiene los DMs cerrados).")
+                await ctx.send("⚠️ No pude enviar DM (DMs cerrados).")
 
         except Exception as e:
-            await ctx.send(f"❌ Error en el proceso de alta: {e}")
+            await ctx.send(f"❌ Error en el proceso: {e}")
 
     # --- COMANDO CERRAR (CON IDENTIFICACIÓN MEJORADA) ---
     @commands.command(name="cerrar", aliases=["close"])
