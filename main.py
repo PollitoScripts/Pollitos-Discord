@@ -101,7 +101,7 @@ async def handle_ticket():
             embed.add_field(name="📝 Problema", value=problema, inline=False)
             
             if not es_vip_int:
-                embed.add_field(name="⚙️ Gestión", value=f"Usa `!alta \"{nombre_final_int}\" <@{discord_id_web}>` para activar.", inline=False)
+                embed.add_field(name="⚙️ Gestión", value=f"Usted no es VIP, Compre algun plan que conste de el para recibir los privilegios", inline=False)
 
             if canal_staff:
                 alerta = f"👑 **¡ALERTA VIP!** {nombre_final_int}" if es_vip_int else None
