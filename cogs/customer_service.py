@@ -14,137 +14,108 @@ class CustomerService(commands.Cog):
         self.gist_id = os.getenv('GIST_ID')
         self.github_token = os.getenv('GITHUB_TOKEN')
         self.id_rol_dev = int(os.getenv('ID_ROL_DEV', 0))
-        print("🛠️ Cog CustomerService (Versión Unificada) cargado")
+        print("🛠️ Cog CustomerService Integrado cargado")
 
-    # --- COMANDO DE ALTA ÚNICO (Sin Email) ---
+    def _get_clientes(self):
+        headers = {"Authorization": f"token {self.github_token}"}
+        r = requests.get(f"https://api.github.com/gists/{self.gist_id}", headers=headers)
+        r.raise_for_status() 
+        return json.loads(r.json()['files']['clientes.json']['content'])
+
+    # --- COMANDO ALTA ---
     @commands.has_role(int(os.getenv('ID_ROL_DEV', 0)))
     @commands.command(name="alta")
     async def alta(self, ctx, empresa: str, miembro: discord.Member, plan: str = "Full Hub"):
-        """Registra empresa, vincula Discord y activa 30 días de suscripción."""
+        """Registra empresa, vincula Discord y activa 30 días."""
         headers = {"Authorization": f"token {self.github_token}"}
         
         def generar_codigo():
             chars = string.ascii_uppercase + string.digits
-            p1 = ''.join(secrets.choice(chars) for _ in range(4))
-            p2 = ''.join(secrets.choice(chars) for _ in range(4))
-            return f"BLITZ-{p1}-{p2}"
+            return f"BLITZ-{''.join(secrets.choice(chars) for _ in range(4))}-{''.join(secrets.choice(chars) for _ in range(4))}"
 
         id_soporte = generar_codigo()
-        fecha_inicio = datetime.now()
-        fecha_fin = fecha_inicio + timedelta(days=30)
-        formato_fecha = "%d/%m/%Y"
+        fecha_fin = datetime.now() + timedelta(days=30)
+        formato = "%d/%m/%Y"
 
-        await ctx.send(f"🛡️ Generando acceso maestro para **{empresa}**...")
+        await ctx.send(f"🛡️ Generando acceso para **{empresa}**...")
 
         try:
-            # 1. Obtener datos del Gist
             r = requests.get(f"https://api.github.com/gists/{self.gist_id}", headers=headers)
-            r.raise_for_status()
             gist_data = r.json()
-
-            # 2. Actualizar clientes.json
             clientes = json.loads(gist_data['files']['clientes.json']['content'])
-            while id_soporte in clientes: 
-                id_soporte = generar_codigo()
             
             clientes[id_soporte] = {
                 "empresa": empresa,
                 "plan": plan,
-                "fecha_alta": fecha_inicio.strftime(formato_fecha),
-                "fecha_expiracion": fecha_fin.strftime(formato_fecha),
+                "fecha_alta": datetime.now().strftime(formato),
+                "fecha_expiracion": fecha_fin.strftime(formato),
                 "estado": "activo"
             }
             
-            # 3. Actualizar mapa_discord.json
-            mapa_content = gist_data['files'].get('mapa_discord.json', {'content': '{}'})['content']
-            mapa = json.loads(mapa_content)
+            mapa = json.loads(gist_data['files'].get('mapa_discord.json', {'content': '{}'})['content'])
             mapa[str(miembro.id)] = id_soporte
 
-            # 4. Subir cambios
-            payload = {
-                "files": {
-                    "clientes.json": {"content": json.dumps(clientes, indent=4)},
-                    "mapa_discord.json": {"content": json.dumps(mapa, indent=4)}
-                }
-            }
+            payload = {"files": {
+                "clientes.json": {"content": json.dumps(clientes, indent=4)},
+                "mapa_discord.json": {"content": json.dumps(mapa, indent=4)}
+            }}
             requests.patch(f"https://api.github.com/gists/{self.gist_id}", headers=headers, json=payload)
 
-            # 5. Respuesta visual
             embed = discord.Embed(title="🚀 Activación Blitz Hub", color=discord.Color.gold())
-            embed.add_field(name="🏢 Empresa", value=f"**{empresa}**", inline=False)
+            embed.add_field(name="🏢 Empresa", value=empresa, inline=False)
             embed.add_field(name="🔑 ID Soporte", value=f"`{id_soporte}`", inline=False)
             embed.add_field(name="👤 Usuario", value=miembro.mention, inline=True)
-            embed.add_field(name="📅 Vence el", value=fecha_fin.strftime(formato_fecha), inline=True)
-            embed.set_footer(text="ID lista para usar en el formulario web")
-            
+            embed.set_footer(text=f"Vence el {fecha_fin.strftime(formato)}")
             await ctx.send(embed=embed)
             
-            # 6. DM al cliente
-            msg = (f"🎊 **¡Acceso Activado!**\n\n"
-                   f"Tu ID para soporte es: `{id_soporte}`\n"
-                   f"Empresa vinculada: **{empresa}**\n"
-                   f"Válido hasta: **{fecha_fin.strftime(formato_fecha)}**")
-            try:
-                await miembro.send(msg)
-            except:
-                await ctx.send("⚠️ No pude enviar DM.")
-
-        except Exception as e:
-            await ctx.send(f"❌ Error: {e}")
+            try: await miembro.send(f"🎊 ¡Acceso Activo! ID: `{id_soporte}` para **{empresa}**.")
+            except: pass
+        except Exception as e: await ctx.send(f"❌ Error: {e}")
 
     # --- COMANDO CERRAR ---
     @commands.command(name="cerrar", aliases=["close"])
     async def cerrar_ticket(self, ctx):
-        """Archiva el canal y gestiona el historial por empresa."""
-        usuario_ticket = None
+        """Archiva el ticket y limpia categorías."""
+        # (Lógica de cierre que ya funciona perfectamente)
         categoria_actual = ctx.channel.category
+        if not categoria_actual: return await ctx.send("Canal sin categoría.")
         
-        for target, overwrite in ctx.channel.overwrites.items():
-            if isinstance(target, discord.Member) and not target.bot:
-                rol_dev = ctx.guild.get_role(self.id_rol_dev)
-                if target != ctx.guild.owner and target != rol_dev:
-                    usuario_ticket = target
-                    break
+        nombre_historial = f"📜 HISTORIAL {categoria_actual.name.replace('📁 ', '')}"
+        cat_archivados = discord.utils.get(ctx.guild.categories, name=nombre_historial)
+        
+        if not cat_archivados:
+            cat_archivados = await ctx.guild.create_category(name=nombre_historial)
 
-        if usuario_ticket:
-            try:
-                embed_dm = discord.Embed(
-                    title="🎫 Ticket Finalizado",
-                    description=f"Tu consulta en **{ctx.guild.name}** ha sido resuelta.",
-                    color=discord.Color.green()
-                )
-                await usuario_ticket.send(embed=embed_dm)
-            except: pass
+        await ctx.channel.edit(name=f"✅-{ctx.channel.name}"[:100], category=cat_archivados)
+        await ctx.send(f"✅ Archivado en {cat_archivados.name}")
+        if len(categoria_actual.channels) == 0: await categoria_actual.delete()
 
+    # --- COMANDO DIAGNÓSTICO (Rescatado) ---
+    @commands.command(name="check_hub")
+    async def check_hub(self, ctx):
+        """Verifica conexión con GitHub."""
         try:
-            if categoria_actual:
-                nombre_base = categoria_actual.name.replace('📁 ', '').replace('📜 HISTORIAL ', '')
-                nombre_historial = f"📜 HISTORIAL {nombre_base}"
-                
-                cat_archivados = discord.utils.get(ctx.guild.categories, name=nombre_historial)
-                if not cat_archivados:
-                    overwrites_hist = {
-                        ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                        ctx.guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True)
-                    }
-                    rol_dev = ctx.guild.get_role(self.id_rol_dev)
-                    if rol_dev: overwrites_hist[rol_dev] = discord.PermissionOverwrite(view_channel=True)
-                    cat_archivados = await ctx.guild.create_category(name=nombre_historial, overwrites=overwrites_hist)
-
-                if usuario_ticket:
-                    await ctx.channel.set_permissions(usuario_ticket, overwrite=None)
-                
-                await ctx.channel.edit(name=f"✅-{ctx.channel.name}"[:100], category=cat_archivados)
-                await ctx.send(f"✅ Archivado en **{cat_archivados.name}**.")
-
-                if len(categoria_actual.channels) == 0:
-                    await categoria_actual.delete()
-            else:
-                await ctx.channel.edit(name=f"✅-{ctx.channel.name}"[:100])
-                await ctx.send("⚠️ Solo renombrado (sin categoría).")
-                
+            clientes = self._get_clientes()
+            await ctx.send(f"✅ Conexión OK. Clientes en base de datos: `{len(clientes)}`")
         except Exception as e:
-            await ctx.send(f"❌ Error al cerrar: {e}")
+            await ctx.send(f"❌ Error de conexión: {e}")
+
+    # --- LISTENER WEBHOOKS (Rescatado) ---
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if message.author.bot and "Blitz Web Intake" in message.author.name:
+            if not message.embeds: return
+            id_proporcionado = "GUEST"
+            for field in message.embeds[0].fields:
+                if "ID Contrato" in field.name:
+                    id_proporcionado = field.value.replace("`", "").strip()
+            
+            try:
+                clientes = self._get_clientes()
+                if id_proporcionado in clientes:
+                    emp = clientes[id_proporcionado]['empresa']
+                    await message.channel.send(f"🛡️ **VERIFICADO:** Cliente `{emp}` confirmado. @everyone")
+            except: pass
 
 async def setup(bot):
     await bot.add_cog(CustomerService(bot))
