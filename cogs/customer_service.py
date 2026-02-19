@@ -23,6 +23,7 @@ class CustomerService(commands.Cog):
         return json.loads(r.json()['files']['clientes.json']['content'])
 
     # --- COMANDO ALTA ---
+   # --- COMANDO ALTA (Actualizado con fecha de vencimiento en DM) ---
     @commands.has_role(int(os.getenv('ID_ROL_DEV', 0)))
     @commands.command(name="alta")
     async def alta(self, ctx, empresa: str, miembro: discord.Member, plan: str = "Full Hub"):
@@ -61,16 +62,28 @@ class CustomerService(commands.Cog):
             }}
             requests.patch(f"https://api.github.com/gists/{self.gist_id}", headers=headers, json=payload)
 
+            # --- EMBED VISUAL ---
             embed = discord.Embed(title="🚀 Activación Blitz Hub", color=discord.Color.gold())
             embed.add_field(name="🏢 Empresa", value=empresa, inline=False)
             embed.add_field(name="🔑 ID Soporte", value=f"`{id_soporte}`", inline=False)
             embed.add_field(name="👤 Usuario", value=miembro.mention, inline=True)
-            embed.set_footer(text=f"Vence el {fecha_fin.strftime(formato)}")
+            # Footer con fecha de vencimiento
+            embed.set_footer(text=f"Vence el {fecha_fin.strftime(formato)}") 
+            
             await ctx.send(embed=embed)
             
-            try: await miembro.send(f"🎊 ¡Acceso Activo! ID: `{id_soporte}` para **{empresa}**.")
-            except: pass
-        except Exception as e: await ctx.send(f"❌ Error: {e}")
+            # --- DM AL USUARIO (Actualizado) ---
+            try: 
+                mensaje_dm = (f"🎊 ¡Acceso Activo!\n\n"
+                              f"🔑 **ID:** `{id_soporte}`\n"
+                              f"🏢 **Empresa:** **{empresa}**\n"
+                              f"📅 **Vence el:** `{fecha_fin.strftime(formato)}`")
+                await miembro.send(mensaje_dm)
+            except: 
+                pass
+
+        except Exception as e: 
+            await ctx.send(f"❌ Error: {e}")
 
     # --- COMANDO CERRAR ---
     @commands.command(name="cerrar", aliases=["close"])
