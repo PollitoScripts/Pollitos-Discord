@@ -36,7 +36,7 @@ async def handle_ticket():
         # --- DEFINICIÓN DE VARIABLES ---
         cliente_id_raw = data.get('cliente_id', "").strip().upper()
         nombre_usuario = data.get('nombre', 'Desconocido')
-        email_usuario = data.get('email', 'No provisto') # <--- Aquí está
+        email_usuario = data.get('email', 'No provisto')
         nombre_empresa_web = data.get('empresa', '').strip().upper() 
         discord_id_web = data.get('discord_id', '').strip()
         problema = data.get('problema', 'Sin descripción')
@@ -77,9 +77,9 @@ async def handle_ticket():
                     requests.patch(f"https://api.github.com/gists/{gist_id}", headers=headers, json=payload)
 
         # ---------------------------------------------------------
-        # PROCESO DISCORD (Pasamos las variables dentro)
+        # PROCESO DISCORD (Categorías Privadas Automáticas)
         # ---------------------------------------------------------
-        async def process_discord(email_int, nombre_final_int, es_vip_int): # Pasamos variables como argumentos
+        async def process_discord(email_int, nombre_final_int, es_vip_int):
             await bot.wait_until_ready()
             guild = bot.get_guild(ID_SERVIDOR_BLITZ)
             if not guild: return
@@ -88,6 +88,7 @@ async def handle_ticket():
             id_canal_staff = int(os.getenv('ID_CANAL_VIP' if es_vip_int else 'ID_CANAL_SOPORTE', 0))
             canal_staff = bot.get_channel(id_canal_staff)
 
+            # Embed de alerta para el Staff
             embed = discord.Embed(
                 title=f"🎫 Ticket: {nombre_final_int}", 
                 color=discord.Color.gold() if es_vip_int else discord.Color.blue(), 
@@ -99,7 +100,6 @@ async def handle_ticket():
             embed.add_field(name="📧 Contacto", value=f"`{email_int}`", inline=True) 
             embed.add_field(name="📝 Problema", value=problema, inline=False)
             
-            # Línea opcional para ayudarte a dar el alta rápido:
             if not es_vip_int:
                 embed.add_field(name="⚙️ Gestión", value=f"Usa `!alta \"{nombre_final_int}\" <@{discord_id_web}>` para activar.", inline=False)
 
@@ -107,22 +107,42 @@ async def handle_ticket():
                 alerta = f"👑 **¡ALERTA VIP!** {nombre_final_int}" if es_vip_int else None
                 await canal_staff.send(content=alerta, embed=embed)
 
+            # --- CREACIÓN DEL ENTORNO PRIVADO ---
             if member:
                 suffix = datetime.now().strftime("%H%M")
                 nombre_canal = f"{nombre_final_int[:10].lower()}-{nombre_usuario[:10].lower()}-{suffix}".replace(" ", "-")
-                cat_id = CAT_VIP if es_vip_int else CAT_ESTANDAR
-                category = guild.get_channel(cat_id)
-
+                
+                # Definir permisos para la categoría/canal
                 overwrites = {
                     guild.default_role: discord.PermissionOverwrite(view_channel=False),
                     member: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-                    guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                    guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
                 }
                 rol_dev = guild.get_role(ID_ROL_DEV)
-                if rol_dev: overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                if rol_dev: 
+                    overwrites[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
-                nuevo_canal = await guild.create_text_channel(name=nombre_canal, category=category, overwrites=overwrites)
-                await nuevo_canal.send(content=f"Hola {member.mention}, atenderemos tu incidencia aquí.", embed=embed)
+                # Lógica de Categoría Dinámica por Empresa
+                nombre_categoria_empresa = f"📁 {nombre_final_int.upper()}"
+                category = discord.utils.get(guild.categories, name=nombre_categoria_empresa)
+                
+                if not category:
+                    # Si la empresa no tiene categoría, la creamos privada
+                    category = await guild.create_category(name=nombre_categoria_empresa, overwrites=overwrites)
+                else:
+                    # Si ya existe, nos aseguramos de que el miembro actual pueda verla
+                    await category.set_permissions(member, view_channel=True, send_messages=True)
+
+                # Crear el canal dentro de la categoría de la empresa
+                nuevo_canal = await guild.create_text_channel(name=nombre_canal, category=category)
+                
+                embed_welcome = discord.Embed(
+                    title="Bienvenido al Soporte Blitz Hub",
+                    description=f"Hola {member.mention}, este es el canal exclusivo para **{nombre_final_int}**.\nUn agente revisará tu caso en breve.",
+                    color=discord.Color.green()
+                )
+                await nuevo_canal.send(embed=embed_welcome)
+                await nuevo_canal.send(embed=embed) # Enviamos también el embed con los datos del problema
 
         # Lanzamos la tarea pasando los valores actuales
         bot.loop.create_task(process_discord(email_usuario, nombre_final, es_vip))
@@ -134,7 +154,7 @@ async def handle_ticket():
         return {"status": "error", "message": str(e)}, 500
 
 # ----------------------------
-# Función de Servicios de Streaming (RECUPERADA)
+# Función de Servicios de Streaming
 # ----------------------------
 async def services():
     channel = bot.get_channel(config.channel_id)
