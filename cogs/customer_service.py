@@ -82,22 +82,12 @@ class CustomerService(commands.Cog):
             await ctx.send(embed=embed)
             
             # --- DM AL USUARIO ---
-            try: 
-                mensaje_dm = (f"🎊 ¡Acceso Activo!\n\n"
-                              f"🔑 **ID:** `{id_soporte}`\n"
-                              f"🏢 **Empresa:** **{empresa}**\n"
-                              f"📅 **Vence el:** `{fecha_fin.strftime(formato)}`")
-                await miembro.send(mensaje_dm)
-            except: 
-                pass
-
-        except Exception as e: 
-            await ctx.send(f"❌ Error: {e}")
             # --- DM AL USUARIO (Actualizado) ---
             try: 
                 mensaje_dm = (f"🎊 ¡Acceso Activo!\n\n"
                               f"🔑 **ID:** `{id_soporte}`\n"
                               f"🏢 **Empresa:** **{empresa}**\n"
+                              f"📦 **Plan Activo:** **{plan}**\n"
                               f"📅 **Vence el:** `{fecha_fin.strftime(formato)}`")
                 await miembro.send(mensaje_dm)
             except: 
