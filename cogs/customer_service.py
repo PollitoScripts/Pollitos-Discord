@@ -96,10 +96,11 @@ class CustomerService(commands.Cog):
             await ctx.send(f"❌ Error en el proceso: {e}")
 
     # --- COMANDO CERRAR ---
-    @commands.command(name="cerrar", aliases=["close"])
+   @commands.command(name="cerrar", aliases=["close"])
     async def cerrar_ticket(self, ctx):
-        """Cierra el ticket, avisa al usuario y archiva el canal."""
+        """Cierra el ticket, avisa al usuario y archiva el canal en la categoría de historial de la empresa."""
         usuario_ticket = None
+        categoria_actual = ctx.channel.category # Guardamos la categoría donde está el ticket ahora
         
         for target, overwrite in ctx.channel.overwrites.items():
             if isinstance(target, discord.Member) and not target.bot:
@@ -125,29 +126,45 @@ class CustomerService(commands.Cog):
             except:
                 pass
 
-        # 3. Mover a categoría de archivos y renombrar
+        # 3. Lógica de Archivo por Empresa
         try:
-            # Buscamos la categoría por ID en lugar de por nombre
-            cat_archivados = ctx.guild.get_channel(self.id_cat_archivados)
-            
-            nuevo_nombre = f"✅-{ctx.channel.name}"[:100]
-            
-            # Preparamos los cambios del canal
-            edit_params = {"name": nuevo_nombre}
-            
-            if cat_archivados and isinstance(cat_archivados, discord.CategoryChannel):
-                edit_params["category"] = cat_archivados
+            if categoria_actual:
+                # Definimos el nombre del historial basado en la empresa (ej: 📜 HISTORIAL EMPRESA PACO)
+                nombre_historial = f"📜 HISTORIAL {categoria_actual.name.replace('📁 ', '')}"
                 
-                # Quitar permisos al usuario para que ya no vea el canal archivado
+                # Buscamos si ya existe esa categoría de historial
+                cat_archivados = discord.utils.get(ctx.guild.categories, name=nombre_historial)
+                
+                # Si no existe, la creamos solo para Staff (Devs)
+                if not cat_archivados:
+                    rol_dev = ctx.guild.get_role(self.id_rol_dev)
+                    overwrites_hist = {
+                        ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                        ctx.guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True)
+                    }
+                    if rol_dev:
+                        overwrites_hist[rol_dev] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                    
+                    cat_archivados = await ctx.guild.create_category(name=nombre_historial, overwrites=overwrites_hist)
+
+                nuevo_nombre = f"✅-{ctx.channel.name}"[:100]
+                
+                # Quitar permisos al usuario para que ya no vea el canal en el historial
                 if usuario_ticket:
                     await ctx.channel.set_permissions(usuario_ticket, overwrite=None)
                 
-                await ctx.channel.edit(**edit_params)
+                # Mover al historial de la empresa y renombrar
+                await ctx.channel.edit(name=nuevo_nombre, category=cat_archivados)
                 await ctx.send(f"✅ Ticket archivado en **{cat_archivados.name}**.")
+
+                # LIMPIEZA: Si la categoría original de la empresa se queda vacía, la borramos
+                if len(categoria_actual.channels) == 0:
+                    await categoria_actual.delete(reason="Categoría de empresa vacía tras cierre de ticket.")
             else:
-                # Si la ID no es válida o no se encuentra, solo renombramos
+                # Si el ticket no estaba en ninguna categoría, solo renombramos
+                nuevo_nombre = f"✅-{ctx.channel.name}"[:100]
                 await ctx.channel.edit(name=nuevo_nombre)
-                await ctx.send(f"⚠️ Variable `ID_CAT_ARCHIVADOS` no válida o categoría no encontrada. Canal renombrado.")
+                await ctx.send(f"⚠️ El canal no estaba en ninguna categoría. Solo renombrado a {nuevo_nombre}")
                 
         except Exception as e:
             await ctx.send(f"❌ Error al intentar cerrar el canal: {e}")
