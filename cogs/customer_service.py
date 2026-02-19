@@ -24,7 +24,6 @@ class CustomerService(commands.Cog):
         """Genera ID, vincula Discord y añade 30 días de suscripción."""
         headers = {"Authorization": f"token {self.github_token}"}
         
-        # 1. GENERAR CÓDIGO BLITZ-XXXX-XXXX
         def generar_codigo():
             chars = string.ascii_uppercase + string.digits
             p1 = ''.join(secrets.choice(chars) for _ in range(4))
@@ -32,8 +31,6 @@ class CustomerService(commands.Cog):
             return f"BLITZ-{p1}-{p2}"
 
         id_soporte = generar_codigo()
-        
-        # 2. CALCULAR FECHAS
         fecha_inicio = datetime.now()
         fecha_fin = fecha_inicio + timedelta(days=30)
         formato_fecha = "%d/%m/%Y"
@@ -41,11 +38,9 @@ class CustomerService(commands.Cog):
         await ctx.send(f"🛡️ Blindando acceso para **{empresa}**...")
 
         try:
-            # 3. Obtener datos actuales del Gist
             r = requests.get(f"https://api.github.com/gists/{self.gist_id}", headers=headers)
             gist_data = r.json()
 
-            # 4. Actualizar clientes.json
             clientes = json.loads(gist_data['files']['clientes.json']['content'])
             while id_soporte in clientes: 
                 id_soporte = generar_codigo()
@@ -58,12 +53,10 @@ class CustomerService(commands.Cog):
                 "estado": "activo"
             }
             
-            # 5. Actualizar mapa_discord.json
             mapa_content = gist_data['files'].get('mapa_discord.json', {'content': '{}'})['content']
             mapa = json.loads(mapa_content)
             mapa[str(miembro.id)] = id_soporte
 
-            # 6. Subir a GitHub
             payload = {
                 "files": {
                     "clientes.json": {"content": json.dumps(clientes, indent=4)},
@@ -72,7 +65,6 @@ class CustomerService(commands.Cog):
             }
             requests.patch(f"https://api.github.com/gists/{self.gist_id}", headers=headers, json=payload)
 
-            # 7. Embed de éxito
             embed = discord.Embed(title="🚀 Activación de Cliente", color=discord.Color.gold())
             embed.add_field(name="🏢 Empresa", value=empresa, inline=False)
             embed.add_field(name="🔑 ID Soporte", value=f"`{id_soporte}`", inline=False)
@@ -82,7 +74,6 @@ class CustomerService(commands.Cog):
             
             await ctx.send(embed=embed)
             
-            # Mensaje privado al cliente
             msg = (f"🎊 **¡Bienvenido a Blitz Hub!**\n\n"
                    f"Tu acceso ha sido activado para: **{empresa}**\n"
                    f"Tu ID único es: `{id_soporte}`\n"
@@ -95,13 +86,14 @@ class CustomerService(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Error en el proceso: {e}")
 
-    # --- COMANDO CERRAR ---
-   @commands.command(name="cerrar", aliases=["close"])
+    # --- COMANDO CERRAR (Corregido) ---
+    @commands.command(name="cerrar", aliases=["close"])
     async def cerrar_ticket(self, ctx):
         """Cierra el ticket, avisa al usuario y archiva el canal en la categoría de historial de la empresa."""
         usuario_ticket = None
-        categoria_actual = ctx.channel.category # Guardamos la categoría donde está el ticket ahora
+        categoria_actual = ctx.channel.category
         
+        # Identificar al usuario del ticket
         for target, overwrite in ctx.channel.overwrites.items():
             if isinstance(target, discord.Member) and not target.bot:
                 rol_dev = ctx.guild.get_role(self.id_rol_dev)
@@ -126,16 +118,14 @@ class CustomerService(commands.Cog):
             except:
                 pass
 
-        # 3. Lógica de Archivo por Empresa
         try:
             if categoria_actual:
-                # Definimos el nombre del historial basado en la empresa (ej: 📜 HISTORIAL EMPRESA PACO)
-                nombre_historial = f"📜 HISTORIAL {categoria_actual.name.replace('📁 ', '')}"
+                # Limpiar el nombre de la categoría para el historial
+                nombre_limpio = categoria_actual.name.replace('📁 ', '').replace('📜 HISTORIAL ', '')
+                nombre_historial = f"📜 HISTORIAL {nombre_limpio}"
                 
-                # Buscamos si ya existe esa categoría de historial
                 cat_archivados = discord.utils.get(ctx.guild.categories, name=nombre_historial)
                 
-                # Si no existe, la creamos solo para Staff (Devs)
                 if not cat_archivados:
                     rol_dev = ctx.guild.get_role(self.id_rol_dev)
                     overwrites_hist = {
@@ -149,22 +139,19 @@ class CustomerService(commands.Cog):
 
                 nuevo_nombre = f"✅-{ctx.channel.name}"[:100]
                 
-                # Quitar permisos al usuario para que ya no vea el canal en el historial
                 if usuario_ticket:
                     await ctx.channel.set_permissions(usuario_ticket, overwrite=None)
                 
-                # Mover al historial de la empresa y renombrar
                 await ctx.channel.edit(name=nuevo_nombre, category=cat_archivados)
                 await ctx.send(f"✅ Ticket archivado en **{cat_archivados.name}**.")
 
-                # LIMPIEZA: Si la categoría original de la empresa se queda vacía, la borramos
+                # Borrar categoría original si queda vacía
                 if len(categoria_actual.channels) == 0:
-                    await categoria_actual.delete(reason="Categoría de empresa vacía tras cierre de ticket.")
+                    await categoria_actual.delete(reason="Categoría de empresa vacía.")
             else:
-                # Si el ticket no estaba en ninguna categoría, solo renombramos
                 nuevo_nombre = f"✅-{ctx.channel.name}"[:100]
                 await ctx.channel.edit(name=nuevo_nombre)
-                await ctx.send(f"⚠️ El canal no estaba en ninguna categoría. Solo renombrado a {nuevo_nombre}")
+                await ctx.send(f"⚠️ Canal renombrado (sin categoría de origen).")
                 
         except Exception as e:
             await ctx.send(f"❌ Error al intentar cerrar el canal: {e}")
