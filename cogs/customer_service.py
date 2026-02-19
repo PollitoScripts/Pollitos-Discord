@@ -23,7 +23,7 @@ class CustomerService(commands.Cog):
         return json.loads(r.json()['files']['clientes.json']['content'])
 
     # --- COMANDO ALTA ---
-   # --- COMANDO ALTA (Actualizado con fecha de vencimiento en DM) ---
+# --- COMANDO ALTA (Actualizado con campo de vencimiento) ---
     @commands.has_role(int(os.getenv('ID_ROL_DEV', 0)))
     @commands.command(name="alta")
     async def alta(self, ctx, empresa: str, miembro: discord.Member, plan: str = "Full Hub"):
@@ -62,16 +62,37 @@ class CustomerService(commands.Cog):
             }}
             requests.patch(f"https://api.github.com/gists/{self.gist_id}", headers=headers, json=payload)
 
-            # --- EMBED VISUAL ---
-            embed = discord.Embed(title="🚀 Activación Blitz Hub", color=discord.Color.gold())
-            embed.add_field(name="🏢 Empresa", value=empresa, inline=False)
+            # --- EMBED VISUAL CORREGIDO ---
+            embed = discord.Embed(
+                title="🚀 Activación Blitz Hub", 
+                color=discord.Color.gold(),
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(name="🏢 Empresa", value=f"**{empresa}**", inline=False)
             embed.add_field(name="🔑 ID Soporte", value=f"`{id_soporte}`", inline=False)
             embed.add_field(name="👤 Usuario", value=miembro.mention, inline=True)
-            # Footer con fecha de vencimiento
-            embed.set_footer(text=f"Vence el {fecha_fin.strftime(formato)}") 
+            embed.add_field(name="📦 Plan Activo", value=plan, inline=True)
+            
+            # Nuevo campo destacado para la fecha de vencimiento
+            embed.add_field(name="📅 Fecha de Vencimiento", value=f"**{fecha_fin.strftime(formato)}**", inline=False)
+            
+            # Mantenemos el footer como respaldo visual
+            embed.set_footer(text=f"Blitz Hub • Vence el {fecha_fin.strftime(formato)}") 
             
             await ctx.send(embed=embed)
             
+            # --- DM AL USUARIO ---
+            try: 
+                mensaje_dm = (f"🎊 ¡Acceso Activo!\n\n"
+                              f"🔑 **ID:** `{id_soporte}`\n"
+                              f"🏢 **Empresa:** **{empresa}**\n"
+                              f"📅 **Vence el:** `{fecha_fin.strftime(formato)}`")
+                await miembro.send(mensaje_dm)
+            except: 
+                pass
+
+        except Exception as e: 
+            await ctx.send(f"❌ Error: {e}")
             # --- DM AL USUARIO (Actualizado) ---
             try: 
                 mensaje_dm = (f"🎊 ¡Acceso Activo!\n\n"
